@@ -1,25 +1,35 @@
-// frontend/src/utils/api.js
-const BASE = import.meta.env.VITE_API_URL || '';
+// src/utils/api.js
+const getBaseUrl = () => {
+  // En production sur Vercel, l'API est sur le même domaine
+  if (import.meta.env.PROD) {
+    return "";
+  }
+  // En développement local
+  return import.meta.env.VITE_API_URL || "http://localhost:4000";
+};
+
+const BASE = getBaseUrl();
 
 function getToken() {
-  return localStorage.getItem('safari_token');
+  return localStorage.getItem("safari_token");
 }
 
 async function request(method, path, body = null, isFormData = false) {
   const headers = {};
   const token = getToken();
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-  if (!isFormData) headers['Content-Type'] = 'application/json';
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  if (!isFormData) headers["Content-Type"] = "application/json";
 
   const opts = { method, headers };
   if (body) opts.body = isFormData ? body : JSON.stringify(body);
 
-  const res = await fetch(`${BASE}/api${path}`, opts);
+  // Construction de l'URL complète
+  const url = `${BASE}/api${path}`;
+  const res = await fetch(url, opts);
 
-  // Token expiré → forcer logout
   if (res.status === 401) {
-    localStorage.removeItem('safari_token');
-    window.location.href = '/login';
+    localStorage.removeItem("safari_token");
+    window.location.href = "/login";
     return;
   }
 
@@ -29,10 +39,10 @@ async function request(method, path, body = null, isFormData = false) {
 }
 
 export const api = {
-  get:    (path)       => request('GET',    path),
-  post:   (path, body) => request('POST',   path, body),
-  put:    (path, body) => request('PUT',    path, body),
-  patch:  (path, body) => request('PATCH',  path, body),
-  delete: (path)       => request('DELETE', path),
-  upload: (path, form) => request('POST',   path, form, true),
+  get: (path) => request("GET", path),
+  post: (path, body) => request("POST", path, body),
+  put: (path, body) => request("PUT", path, body),
+  patch: (path, body) => request("PATCH", path, body),
+  delete: (path) => request("DELETE", path),
+  upload: (path, form) => request("POST", path, form, true),
 };
