@@ -120,6 +120,11 @@ router.post("/login", async (req, res) => {
       .ilike("first_name", firstName.trim())
       .ilike("last_name", lastName.trim())
       .single();
+    console.log("[LOGIN SUPABASE]", {
+      user: user?.id,
+      error: error?.message,
+      code: error?.code,
+    });
 
     // Message volontairement identique pour ne pas donner d'indice
     if (error || !user) {
