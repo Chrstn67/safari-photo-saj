@@ -39,6 +39,15 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true, ts: new Date().toISOString() });
 });
 
+app.get("/api/debug-env", (_req, res) => {
+  res.json({
+    supabase_url: !!process.env.SUPABASE_URL,
+    supabase_key: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+    jwt_secret: !!process.env.JWT_SECRET,
+    frontend_url: process.env.FRONTEND_URL,
+  });
+});
+
 // ✅ Format correct pour Vercel serverless
 export default function handler(req, res) {
   app(req, res);

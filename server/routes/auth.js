@@ -100,7 +100,11 @@ router.post("/register", async (req, res) => {
 ──────────────────────────────────────────────────────────────── */
 router.post("/login", async (req, res) => {
   const { firstName, lastName, password } = req.body;
-
+  console.log("[LOGIN DEBUG]", {
+    firstName,
+    lastName,
+    passwordLength: password?.length,
+  });
   if (!firstName?.trim() || !lastName?.trim() || !password) {
     return res
       .status(400)
