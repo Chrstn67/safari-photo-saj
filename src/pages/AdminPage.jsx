@@ -20,12 +20,12 @@ export default function AdminPage() {
 
   const TABS = [
     { id: "dashboard", label: "Dashboard", icon: "📊" },
-    { id: "deliberation", label: "Délibérations", icon: "🔴" },
     { id: "users", label: "Utilisateurs", icon: "👥" },
+    { id: "deliberation", label: "Délibérations", icon: "🔴" },
     { id: "categories", label: "Catégories", icon: "🗂️" },
     { id: "criteria", label: "Critères", icon: "📐" },
-    { id: "eye-prize", label: "Prix de l'œil", icon: "👁️" },
     { id: "results", label: "Résultats", icon: "🏆" },
+    { id: "eye-prize", label: "Prix de l'œil", icon: "👁️" },
     { id: "audit", label: "Audit", icon: "📋" },
   ];
 
@@ -1453,7 +1453,7 @@ function AdminResultsTab({ showFlash, user }) {
 
   const handleSelectEyePrize = async (submissionId) => {
     try {
-      await api.post("/results/select-eye-prize", { submissionId });
+      await api.post("/results/eye-prize/finalize", { submissionId });
       showFlash("✅ Prix de l'œil attribué !");
       await loadData();
       setSelectingEyePrize(false);
@@ -2153,7 +2153,7 @@ function AuditTab() {
   );
 }
 
-// frontend/src/pages/AdminPage.jsx - Nouveau composant
+// frontend/src/pages/AdminPage.jsx - Ajoutez ce composant
 
 function EyePrizeManagement({ showFlash }) {
   const [loading, setLoading] = useState(false);
@@ -2221,7 +2221,7 @@ function EyePrizeManagement({ showFlash }) {
     } catch (e) {
       if (e.message.includes("Égalité")) {
         showFlash(
-          "⚠️ Égalité détectée ! Utilisez 'Résoudre l'égalité' pour choisir le gagnant.",
+          "⚠️ Égalité détectée ! Cliquez sur 'Choisir comme gagnante' pour départager.",
         );
       } else {
         showFlash("❌ " + e.message);
@@ -2232,7 +2232,8 @@ function EyePrizeManagement({ showFlash }) {
   };
 
   const handleResolveTie = async (winningSubmissionId) => {
-    if (!confirm("Confirmer cette photo comme gagnante ?")) return;
+    if (!confirm("Confirmer cette photo comme gagnante du Prix de l'œil ?"))
+      return;
     try {
       await api.post("/results/eye-prize/resolve-tie", { winningSubmissionId });
       showFlash("✅ Égalité résolue - Prix de l'œil finalisé !");
@@ -2443,7 +2444,7 @@ function EyePrizeManagement({ showFlash }) {
         </div>
       )}
 
-      {/* Modals de confirmation */}
+      {/* Modal de confirmation réinitialisation totale */}
       {showResetConfirm && (
         <div
           className="modal-backdrop"
@@ -2488,6 +2489,7 @@ function EyePrizeManagement({ showFlash }) {
         </div>
       )}
 
+      {/* Modal de confirmation réinitialisation d'un juré */}
       {showJurorResetConfirm && (
         <div
           className="modal-backdrop"
