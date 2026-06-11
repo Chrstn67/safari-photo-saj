@@ -10,6 +10,7 @@ export default function AdminPage() {
   const { user, logout } = useAuth();
   const [tab, setTab] = useState("dashboard");
   const [flash, setFlash] = useState("");
+  const [finalizingEyePrize, setFinalizingEyePrize] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
 
   function showFlash(msg) {
@@ -1357,6 +1358,46 @@ function AdminResultsTab({ showFlash, user }) {
     }
   };
 
+  const handleFinalizeEyePrize = async () => {
+    setFinalizingEyePrize(true);
+    try {
+      const result = await api.post("/results/eye-prize/finalize");
+      if (result.hasTie) {
+        showFlash(
+          "⚠️ Égalité détectée ! Utilisez 'Résoudre l'égalité' pour choisir le gagnant.",
+        );
+      } else {
+        showFlash(
+          `✅ Prix de l'œil finalisé ! La photo gagnante a reçu ${result.totalVotes} vote(s).`,
+        );
+      }
+      await loadData();
+    } catch (e) {
+      if (e.message.includes("Égalité")) {
+        showFlash(
+          "⚠️ Égalité détectée ! Cliquez sur 'Résoudre l'égalité' pour départager.",
+        );
+      } else {
+        showFlash("❌ " + e.message);
+      }
+    } finally {
+      setFinalizingEyePrize(false);
+    }
+  };
+
+  const handleResolveEyePrizeTie = async (winningSubmissionId) => {
+    if (!confirm("Confirmer cette photo comme gagnante du Prix de l'œil ?"))
+      return;
+    try {
+      await api.post("/results/eye-prize/resolve-tie", { winningSubmissionId });
+      showFlash("✅ Égalité résolue - Prix de l'œil finalisé !");
+      await loadData();
+      setSelectingEyePrize(false);
+    } catch (e) {
+      showFlash("❌ " + e.message);
+    }
+  };
+
   const handleCompute = async () => {
     setComputing(true);
     try {
@@ -1589,6 +1630,49 @@ function AdminPalmaresDisplay({
         <div className="empty-icon">🏆</div>
         <div className="empty-title">En attente des résultats</div>
         <p>Les résultats seront affichés ici après calcul.</p>
+      </div>
+    );
+  }
+
+  {
+    isAdmin && !data.eyePrize && (
+      <div
+        style={{
+          display: "flex",
+          gap: "1rem",
+          marginBottom: "1rem",
+          flexWrap: "wrap",
+        }}
+      >
+        <button
+          className="btn btn-primary"
+          onClick={() => setEyePrizeMode(true)}
+          disabled={data.eyePrizeVotes?.length === 0}
+        >
+          👁️ Lancer le vote
+        </button>
+        {data.eyePrizeVotes?.length > 0 && (
+          <>
+            <button
+              className="btn btn-success"
+              onClick={() => {
+                // Finaliser automatiquement
+                handleFinalizeEyePrize();
+              }}
+              disabled={finalizingEyePrize}
+            >
+              🏆 Finaliser le vote
+            </button>
+            {data.eyePrizeHasTie && (
+              <button
+                className="btn btn-warning"
+                onClick={() => setSelectingEyePrize(true)}
+              >
+                ⚠️ Résoudre l'égalité
+              </button>
+            )}
+          </>
+        )}
       </div>
     );
   }
