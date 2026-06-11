@@ -156,6 +156,92 @@ router.put("/users/:id", async (req, res) => {
   res.json(data);
 });
 
+/* ── POST /api/admin/categories/:id/reset  — Réinitialiser une catégorie (supprimer toutes les soumissions) ── */
+router.post(
+  "/categories/:id/reset",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    const { id } = req.params;
+
+    try {
+      // 1. Vérifier que la catégorie existe
+      const { data: category, error: catError } = await supabase
+        .from("categories")
+        .select("id, name")
+        .eq("id", id)
+        .single();
+
+      if (catError || !category) {
+        return res.status(404).json({ error: "Catégorie introuvable" });
+      }
+
+      // 2. Récupérer toutes les soumissions de cette catégorie
+      const { data: submissions, error: subError } = await supabase
+        .from("submissions")
+        .select("id, photo_id")
+        .eq("category_id", id);
+
+      if (subError) throw subError;
+
+      const submissionIds = (submissions || []).map((s) => s.id);
+      const photoIds = (submissions || []).map((s) => s.photo_id);
+
+      // 3. Supprimer les scores
+      if (submissionIds.length > 0) {
+        await supabase
+          .from("scores")
+          .delete()
+          .in("submission_id", submissionIds);
+        await supabase
+          .from("jury_validations")
+          .delete()
+          .in("submission_id", submissionIds);
+        await supabase
+          .from("favorites")
+          .delete()
+          .in("submission_id", submissionIds);
+        await supabase
+          .from("results")
+          .delete()
+          .in("submission_id", submissionIds);
+      }
+
+      // 4. Supprimer les soumissions
+      await supabase.from("submissions").delete().eq("category_id", id);
+
+      // 5. Réinitialiser les photos (is_submitted = false)
+      if (photoIds.length > 0) {
+        await supabase
+          .from("photos")
+          .update({ is_submitted: false })
+          .in("id", photoIds);
+      }
+
+      // 6. Supprimer la session de délibération si elle existe
+      await supabase
+        .from("deliberation_sessions")
+        .delete()
+        .eq("category_id", id);
+
+      await log(req.user.id, "CATEGORY_RESET", "categories", id, {
+        categoryName: category.name,
+        submissionsReset: submissionIds.length,
+        photosReset: photoIds.length,
+      });
+
+      res.json({
+        success: true,
+        message: `Catégorie "${category.name}" réinitialisée`,
+        resetCount: submissionIds.length,
+      });
+    } catch (e) {
+      console.error("[CATEGORY_RESET] Erreur:", e);
+      res.status(500).json({ error: e.message });
+    }
+  },
+);
+
 /* DELETE /api/admin/users/:id
    Supprime un utilisateur et toutes ses données associées (cascade)
    Gère le cas où l'utilisateur a des photos dans des sessions actives */

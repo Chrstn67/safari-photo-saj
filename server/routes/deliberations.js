@@ -396,4 +396,113 @@ router.get(
   },
 );
 
+/* ── DELETE /api/deliberations/session/:categoryId  — Supprimer une session de délibération ── */
+router.delete(
+  "/session/:categoryId",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    const { categoryId } = req.params;
+
+    if (!categoryId) {
+      return res.status(400).json({ error: "categoryId requis" });
+    }
+
+    try {
+      // 1. Récupérer toutes les soumissions de cette catégorie
+      const { data: submissions, error: subError } = await supabase
+        .from("submissions")
+        .select("id, photo_id")
+        .eq("category_id", categoryId);
+
+      if (subError) throw subError;
+
+      const submissionIds = (submissions || []).map((s) => s.id);
+      const photoIds = (submissions || []).map((s) => s.photo_id);
+
+      // 2. Supprimer les scores liés à ces soumissions
+      if (submissionIds.length > 0) {
+        const { error: scoresError } = await supabase
+          .from("scores")
+          .delete()
+          .in("submission_id", submissionIds);
+
+        if (scoresError) throw scoresError;
+
+        // 3. Supprimer les validations des jurés
+        const { error: validationsError } = await supabase
+          .from("jury_validations")
+          .delete()
+          .in("submission_id", submissionIds);
+
+        if (validationsError) throw validationsError;
+
+        // 4. Supprimer les favoris/coups de cœur
+        const { error: favoritesError } = await supabase
+          .from("favorites")
+          .delete()
+          .in("submission_id", submissionIds);
+
+        if (favoritesError) throw favoritesError;
+
+        // 5. Supprimer les résultats calculés
+        const { error: resultsError } = await supabase
+          .from("results")
+          .delete()
+          .in("submission_id", submissionIds);
+
+        if (resultsError) throw resultsError;
+
+        // 6. Supprimer les soumissions
+        const { error: deleteSubError } = await supabase
+          .from("submissions")
+          .delete()
+          .eq("category_id", categoryId);
+
+        if (deleteSubError) throw deleteSubError;
+      }
+
+      // 7. Mettre à jour les photos : les marquer comme non soumises
+      if (photoIds.length > 0) {
+        const { error: photosError } = await supabase
+          .from("photos")
+          .update({ is_submitted: false })
+          .in("id", photoIds);
+
+        if (photosError) throw photosError;
+      }
+
+      // 8. Supprimer ou réinitialiser la session de délibération
+      const { error: sessionError } = await supabase
+        .from("deliberation_sessions")
+        .delete()
+        .eq("category_id", categoryId);
+
+      if (sessionError) throw sessionError;
+
+      // 9. Journaliser l'action
+      await log(
+        req.user.id,
+        "DELIB_SESSION_DELETED",
+        "deliberation_sessions",
+        null,
+        {
+          categoryId,
+          submissionsDeleted: submissionIds.length,
+          photosReset: photoIds.length,
+        },
+      );
+
+      res.json({
+        success: true,
+        message: `Session supprimée : ${submissionIds.length} soumission(s) réinitialisée(s)`,
+        deletedCount: submissionIds.length,
+      });
+    } catch (e) {
+      console.error("[DELETE_SESSION] Erreur:", e);
+      res.status(500).json({ error: e.message });
+    }
+  },
+);
+
 export default router;

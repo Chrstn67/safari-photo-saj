@@ -45,6 +45,20 @@ export default function AdminPage() {
           <>
             <span className="topbar-user">{user?.firstName} (admin)</span>
             <button
+              className="btn btn-sm menu-toggle"
+              style={{
+                borderColor: "rgba(255,255,255,.25)",
+                color: "var(--sand)",
+                background: "transparent",
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+              }}
+              onClick={() => setShowMobileMenu(!showMobileMenu)}
+            >
+              ☰ Menu
+            </button>
+            <button
               className="btn btn-sm"
               style={{
                 borderColor: "rgba(255,255,255,.25)",
@@ -91,7 +105,7 @@ export default function AdminPage() {
         </div>
       </div>
 
-      {/* Bottom nav mobile : burger à gauche + 5 onglets */}
+      {/* Bottom nav mobile : burger à gauche + onglets */}
       <nav className="bottom-nav">
         <button
           className={`bottom-burger${showMobileMenu ? " active" : ""}`}
@@ -246,15 +260,17 @@ function DashboardTab({ showFlash }) {
 }
 
 /* ════════════════════════════════════════════════════════
-   DÉLIBÉRATIONS
+   DÉLIBÉRATIONS - AVEC SUPPRESSION DE SESSION
 ════════════════════════════════════════════════════════ */
 function DeliberationTab({ showFlash }) {
   const [categories, setCategories] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [validations, setValidations] = useState({});
+  const [loading, setLoading] = useState(false);
   const { user } = useAuth();
 
   const load = useCallback(async () => {
+    setLoading(true);
     try {
       const [cats, sess] = await Promise.all([
         api.get("/categories"),
@@ -264,6 +280,8 @@ function DeliberationTab({ showFlash }) {
       setSessions(sess);
     } catch (e) {
       showFlash("❌ " + e.message);
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -335,6 +353,33 @@ function DeliberationTab({ showFlash }) {
     }
   }
 
+  /* ── Supprimer complètement une session ── */
+  async function deleteSession(categoryId, categoryName) {
+    const msg =
+      `⚠️ SUPPRESSION COMPLÈTE DE LA SESSION ⚠️\n\n` +
+      `Catégorie : ${categoryName}\n\n` +
+      `⚠️ Cette action va :\n` +
+      `• Supprimer TOUTES les soumissions dans cette catégorie\n` +
+      `• Remettre à zéro les photos (elles redeviennent disponibles)\n` +
+      `• Supprimer toutes les notes et validations\n` +
+      `• Supprimer les coups de cœur\n` +
+      `• Supprimer les résultats calculés\n\n` +
+      `✅ Ce qui est CONSERVÉ :\n` +
+      `• Les utilisateurs (participants, jurés, admin)\n` +
+      `• Les photos dans la banque des participants\n\n` +
+      `Action irréversible. Confirmer la suppression ?`;
+
+    if (!confirm(msg)) return;
+
+    try {
+      await api.delete(`/deliberations/session/${categoryId}`);
+      showFlash(`🗑️ Session "${categoryName}" supprimée avec succès`);
+      load();
+    } catch (e) {
+      showFlash("❌ " + e.message);
+    }
+  }
+
   return (
     <div>
       <div className="section">
@@ -349,6 +394,21 @@ function DeliberationTab({ showFlash }) {
           Ouvrez les catégories une par une. Le passage à la photo suivante est
           automatique quand tous les jurés ont validé.
         </div>
+        <div
+          className="info-banner banner-blue"
+          style={{ marginBottom: "1rem" }}
+        >
+          <span className="banner-icon">🗑️</span>
+          <strong>Nouveau :</strong> Vous pouvez maintenant supprimer
+          complètement une session. Les participants conservent leurs photos
+          dans leur banque, mais les soumissions et notes sont effacées.
+        </div>
+
+        {loading && (
+          <div style={{ textAlign: "center", padding: "2rem" }}>
+            <span className="spinner" />
+          </div>
+        )}
 
         <div
           style={{ display: "flex", flexDirection: "column", gap: ".75rem" }}
@@ -357,6 +417,7 @@ function DeliberationTab({ showFlash }) {
             const session = sessions.find((s) => s.category_id === cat.id);
             const vals = validations[cat.id] || [];
             const isOpen = session?.status === "open";
+            const hasSession = session !== undefined;
 
             return (
               <div key={cat.id} className="panel">
@@ -382,7 +443,7 @@ function DeliberationTab({ showFlash }) {
                     </div>
                   </div>
                   <span
-                    className={`badge ${isOpen ? "badge-green" : session?.status === "completed" ? "badge-amber" : "badge-ink"}`}
+                    className={`badge ${isOpen ? "badge-green" : session?.status === "completed" ? "badge-amber" : hasSession ? "badge-ink" : "badge-red"}`}
                   >
                     {isOpen
                       ? "🟢 En cours"
@@ -390,7 +451,9 @@ function DeliberationTab({ showFlash }) {
                         ? "✅ Terminé"
                         : session?.status === "closed"
                           ? "🔴 Fermé"
-                          : "⏸️ En attente"}
+                          : hasSession
+                            ? "⏸️ En attente"
+                            : "⚪ Aucune session"}
                   </span>
                 </div>
 
@@ -442,12 +505,12 @@ function DeliberationTab({ showFlash }) {
                     flexWrap: "wrap",
                   }}
                 >
-                  {!session || session.status === "pending" ? (
+                  {!hasSession ? (
                     <button
                       className="btn btn-green btn-sm"
                       onClick={() => openCategory(cat.id)}
                     >
-                      🟢 Ouvrir
+                      🟢 Créer & ouvrir
                     </button>
                   ) : isOpen ? (
                     <>
@@ -464,16 +527,63 @@ function DeliberationTab({ showFlash }) {
                         🔴 Fermer
                       </button>
                     </>
-                  ) : null}
-                  {session && (
+                  ) : (
                     <button
-                      className="btn btn-sm"
-                      onClick={() => resetCategory(cat.id)}
+                      className="btn btn-green btn-sm"
+                      onClick={() => openCategory(cat.id)}
+                      disabled={session?.status === "completed"}
+                      title={
+                        session?.status === "completed"
+                          ? "Catégorie déjà terminée"
+                          : ""
+                      }
                     >
-                      🔄 Réinitialiser
+                      🟢 Ouvrir
                     </button>
                   )}
+
+                  {hasSession && (
+                    <>
+                      <button
+                        className="btn btn-sm"
+                        onClick={() => resetCategory(cat.id)}
+                      >
+                        🔄 Réinitialiser notes
+                      </button>
+                      <button
+                        className="btn btn-sm btn-danger"
+                        style={{
+                          background: "var(--red-light)",
+                          color: "var(--red)",
+                        }}
+                        onClick={() => deleteSession(cat.id, cat.name)}
+                      >
+                        🗑️ Supprimer session
+                      </button>
+                    </>
+                  )}
                 </div>
+
+                {hasSession && (
+                  <div
+                    style={{
+                      padding: ".5rem 1rem",
+                      background: "var(--sand-dark)",
+                      fontSize: ".7rem",
+                      color: "var(--ink-muted)",
+                      borderTop: "1px solid var(--sand-border)",
+                    }}
+                  >
+                    <span>
+                      ℹ️ La suppression d'une session efface toutes les
+                      soumissions et notes,{" "}
+                    </span>
+                    <strong>
+                      mais les photos restent dans la banque des participants
+                    </strong>
+                    <span> pour une nouvelle soumission.</span>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -748,6 +858,31 @@ function CategoriesTab({ showFlash }) {
       .catch((e) => showFlash("❌ " + e.message));
   }
 
+  /* ── Réinitialiser une catégorie ── */
+  async function handleResetCategory(cat) {
+    const msg =
+      `⚠️ RÉINITIALISATION DE LA CATÉGORIE ⚠️\n\n` +
+      `Catégorie : ${cat.name}\n\n` +
+      `Cette action va :\n` +
+      `• Supprimer TOUTES les soumissions dans cette catégorie\n` +
+      `• Remettre à zéro les photos (elles redeviennent disponibles)\n` +
+      `• Supprimer toutes les notes et validations\n` +
+      `• Supprimer les coups de cœur\n` +
+      `• Supprimer les résultats calculés\n\n` +
+      `Les photos restent dans la banque des participants.\n\n` +
+      `Confirmer la réinitialisation ?`;
+
+    if (!confirm(msg)) return;
+
+    try {
+      await api.post(`/admin/categories/${cat.id}/reset`);
+      showFlash(`🔄 Catégorie "${cat.name}" réinitialisée`);
+      load();
+    } catch (e) {
+      showFlash("❌ " + e.message);
+    }
+  }
+
   return (
     <div className="section">
       <div className="section-header">
@@ -772,6 +907,7 @@ function CategoriesTab({ showFlash }) {
               gap: ".75rem",
               padding: ".7rem 1rem",
               borderBottom: "1px solid var(--sand-border)",
+              flexWrap: "wrap",
             }}
           >
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -790,7 +926,14 @@ function CategoriesTab({ showFlash }) {
             >
               {cat.is_active ? "Active" : "Inactive"}
             </span>
-            <div style={{ display: "flex", gap: ".3rem", flexShrink: 0 }}>
+            <div
+              style={{
+                display: "flex",
+                gap: ".3rem",
+                flexShrink: 0,
+                flexWrap: "wrap",
+              }}
+            >
               <button
                 className="btn btn-sm"
                 onClick={() => {
@@ -806,6 +949,18 @@ function CategoriesTab({ showFlash }) {
               </button>
               <button className="btn btn-sm" onClick={() => toggleActive(cat)}>
                 {cat.is_active ? "🔴" : "🟢"}
+              </button>
+              <button
+                className="btn btn-sm btn-warning"
+                onClick={() => handleResetCategory(cat)}
+                title="Réinitialiser toutes les soumissions"
+                style={{
+                  background: "var(--amber-light)",
+                  color: "var(--amber)",
+                  borderColor: "var(--amber-mid)",
+                }}
+              >
+                🔄
               </button>
               <button
                 className="btn btn-sm btn-danger"
@@ -1252,7 +1407,7 @@ function AdminResultsTab({ showFlash, user }) {
           </button>
         </div>
 
-        {/* Étapes 2 & 3 — colonne sur mobile */}
+        {/* Étapes 2 & 3 */}
         <div
           style={{
             fontSize: ".75rem",
@@ -1264,7 +1419,15 @@ function AdminResultsTab({ showFlash, user }) {
         >
           Étapes 2 & 3 — Publication
         </div>
-        <div className="btn-group-responsive" style={{ marginBottom: "1rem" }}>
+        <div
+          className="btn-group-responsive"
+          style={{
+            marginBottom: "1rem",
+            display: "flex",
+            gap: ".5rem",
+            flexWrap: "wrap",
+          }}
+        >
           <button
             className={`btn ${status.jurorsCanView ? "btn-success" : "btn-amber"}`}
             onClick={handlePublishToJurors}
@@ -1551,6 +1714,19 @@ function AdminPalmaresDisplay({
         </div>
         {data.eyePrize ? (
           <div className="card" style={{ textAlign: "center" }}>
+            {data.eyePrize.submissions?.photoUrl && (
+              <img
+                src={data.eyePrize.submissions.photoUrl}
+                alt="Photo gagnante"
+                style={{
+                  width: "100%",
+                  maxHeight: 300,
+                  objectFit: "contain",
+                  borderRadius: 8,
+                  marginBottom: "1rem",
+                }}
+              />
+            )}
             <div style={{ fontSize: "2.5rem", marginBottom: ".5rem" }}>
               👁️✨
             </div>
@@ -1601,9 +1777,9 @@ function AdminPalmaresDisplay({
                   onClick={() => onSelectEyePrize(sub.id)}
                   style={{ cursor: "pointer" }}
                 >
-                  {sub.photos?.storage_path && (
+                  {sub.photoUrl ? (
                     <img
-                      src={`${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/photos/${sub.photos.storage_path}`}
+                      src={sub.photoUrl}
                       alt=""
                       style={{
                         width: "100%",
@@ -1611,6 +1787,19 @@ function AdminPalmaresDisplay({
                         objectFit: "cover",
                       }}
                     />
+                  ) : (
+                    <div
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        background: "var(--sand-dark)",
+                      }}
+                    >
+                      📷
+                    </div>
                   )}
                   <div
                     className="photo-overlay"
@@ -1677,6 +1866,8 @@ function AuditTab() {
     RESULTS_UNPUBLISH: "badge-red",
     ADMIN_DELETE_USER: "badge-red",
     ADMIN_DELETE_PHOTO: "badge-red",
+    DELIB_SESSION_DELETED: "badge-red",
+    CATEGORY_RESET: "badge-amber",
   };
 
   return (
