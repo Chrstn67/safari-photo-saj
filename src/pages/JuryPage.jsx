@@ -1,4 +1,4 @@
-// frontend/src/pages/JuryPage.jsx
+// frontend/src/pages/JuryPage.jsx - VERSION COMPLÈTE ET FONCTIONNELLE
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "../../server/hooks/useAuth.jsx";
 import { api } from "../../server/utils/api.js";
@@ -510,7 +510,7 @@ export default function JuryPage() {
 }
 
 // ════════════════════════════════════════════════════════════════
-// COMPOSANT PALMARÈS
+// COMPOSANT PALMARÈS - AVEC SYSTÈME DE VOTE COMPLET
 // ════════════════════════════════════════════════════════════════
 function PalmaresView({ showFlash, user }) {
   const [data, setData] = useState(null);
@@ -525,6 +525,7 @@ function PalmaresView({ showFlash, user }) {
     setLoading(true);
     try {
       const result = await api.get("/results/palmares");
+      console.log("[PalmaresView] Données reçues:", result);
       setData(result);
       setEyePrizeData({
         voteCounts: result.eyePrizeVotes || [],
@@ -774,7 +775,7 @@ function PalmaresView({ showFlash, user }) {
         )}
       </div>
 
-      {/* 5. PRIX DE L'ŒIL */}
+      {/* 5. PRIX DE L'ŒIL - AVEC VOTE */}
       <div className="section">
         <div className="section-header">
           <div className="section-title">
@@ -810,8 +811,10 @@ function PalmaresView({ showFlash, user }) {
               {finalResult.submissions?.anonymous_id}
             </div>
             <div style={{ fontSize: ".8rem", color: "var(--ink-muted)" }}>
+              {finalResult.submissions?.users &&
+                `par ${finalResult.submissions.users.first_name} ${finalResult.submissions.users.last_name}`}
               {finalResult.submissions?.categories?.name &&
-                `Catégorie : ${finalResult.submissions.categories.name}`}
+                ` · ${finalResult.submissions.categories.name}`}
             </div>
             <div className="badge badge-amber" style={{ marginTop: ".5rem" }}>
               {finalResult.total_votes} vote(s)
@@ -819,6 +822,7 @@ function PalmaresView({ showFlash, user }) {
           </div>
         ) : (
           <>
+            {/* Message d'égalité */}
             {hasTie && (
               <div
                 className="info-banner banner-red"
@@ -839,6 +843,7 @@ function PalmaresView({ showFlash, user }) {
               </div>
             )}
 
+            {/* Résumé des votes actuels */}
             {voteCounts.length > 0 && (
               <div className="panel" style={{ marginBottom: "1rem" }}>
                 <div
@@ -900,9 +905,18 @@ function PalmaresView({ showFlash, user }) {
                       <div style={{ fontWeight: 600, marginTop: ".5rem" }}>
                         {vote.anonymousId}
                       </div>
+                      <div
+                        style={{
+                          fontSize: ".7rem",
+                          color: "var(--ink-muted)",
+                          marginTop: ".25rem",
+                        }}
+                      >
+                        {vote.categoryName}
+                      </div>
                       <span
                         className="badge badge-amber"
-                        style={{ marginTop: ".25rem" }}
+                        style={{ marginTop: ".5rem" }}
                       >
                         {vote.votes} voix
                       </span>
@@ -912,6 +926,7 @@ function PalmaresView({ showFlash, user }) {
               </div>
             )}
 
+            {/* Message vote */}
             <div
               className="info-banner banner-amber"
               style={{ marginBottom: "1rem" }}
@@ -931,6 +946,7 @@ function PalmaresView({ showFlash, user }) {
               )}
             </div>
 
+            {/* BOUTON POUR VOTER - AFFICHE LA LISTE DES PHOTOS */}
             <button
               className="btn btn-primary btn-full"
               onClick={() => setShowVoteModal(true)}
@@ -940,14 +956,14 @@ function PalmaresView({ showFlash, user }) {
               {hasVoted
                 ? "🔄 Modifier mon vote"
                 : hasTie
-                  ? "⏳ Égalité en cours"
+                  ? "⏳ Égalité en cours de résolution"
                   : "🗳️ Voter pour ma photo préférée"}
             </button>
           </>
         )}
       </div>
 
-      {/* MODAL DE VOTE */}
+      {/* MODAL DE VOTE - LISTE COMPLÈTE DES PHOTOS */}
       {showVoteModal && (
         <div className="modal-backdrop" onClick={() => setShowVoteModal(false)}>
           <div
@@ -956,7 +972,7 @@ function PalmaresView({ showFlash, user }) {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="modal-header">
-              <h3>👁️ Choisissez votre photo préférée</h3>
+              <h3>👁️ Sélectionnez votre photo préférée</h3>
               <button
                 className="btn btn-sm"
                 onClick={() => setShowVoteModal(false)}
@@ -1049,7 +1065,7 @@ function PalmaresView({ showFlash, user }) {
         </div>
       )}
 
-      {/* MODAL RÉSULTATS */}
+      {/* MODAL DES RÉSULTATS DES VOTES */}
       {showResultsModal && (
         <div
           className="modal-backdrop"
@@ -1078,63 +1094,68 @@ function PalmaresView({ showFlash, user }) {
                     color: "var(--ink-muted)",
                   }}
                 >
-                  Aucun vote enregistré
+                  Aucun vote enregistré pour le moment.
                 </div>
               ) : (
-                voteCounts
-                  .sort((a, b) => b.votes - a.votes)
-                  .map((vote, idx) => (
-                    <div
-                      key={idx}
-                      className="card"
-                      style={{
-                        padding: "1rem",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "1rem",
-                        flexWrap: "wrap",
-                        marginBottom: ".5rem",
-                        border:
-                          hasTie && vote.votes === voteCounts[0]?.votes
-                            ? "2px solid var(--amber)"
-                            : "none",
-                      }}
-                    >
-                      {vote.photoUrl && (
-                        <img
-                          src={vote.photoUrl}
-                          alt=""
-                          style={{
-                            width: "60px",
-                            height: "60px",
-                            objectFit: "cover",
-                            borderRadius: "8px",
-                          }}
-                        />
-                      )}
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontWeight: 700 }}>
-                          {vote.anonymousId}
+                <div
+                  className="photo-grid"
+                  style={{ gridTemplateColumns: "1fr" }}
+                >
+                  {voteCounts
+                    .sort((a, b) => b.votes - a.votes)
+                    .map((vote, idx) => (
+                      <div
+                        key={idx}
+                        className="card"
+                        style={{
+                          padding: "1rem",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "1rem",
+                          flexWrap: "wrap",
+                          marginBottom: ".5rem",
+                          border:
+                            hasTie && vote.votes === voteCounts[0]?.votes
+                              ? "2px solid var(--amber)"
+                              : "none",
+                        }}
+                      >
+                        {vote.photoUrl && (
+                          <img
+                            src={vote.photoUrl}
+                            alt=""
+                            style={{
+                              width: "60px",
+                              height: "60px",
+                              objectFit: "cover",
+                              borderRadius: "8px",
+                            }}
+                          />
+                        )}
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 700 }}>
+                            {vote.anonymousId}
+                          </div>
+                          <div
+                            style={{
+                              fontSize: ".7rem",
+                              color: "var(--ink-muted)",
+                            }}
+                          >
+                            {vote.categoryName}
+                          </div>
                         </div>
-                        <div
-                          style={{
-                            fontSize: ".7rem",
-                            color: "var(--ink-muted)",
-                          }}
-                        >
-                          {vote.categoryName}
+                        <div>
+                          <span
+                            className="badge badge-amber"
+                            style={{ fontSize: "1rem", padding: ".3rem 1rem" }}
+                          >
+                            {vote.votes} voix
+                          </span>
                         </div>
                       </div>
-                      <div>
-                        <span
-                          className="badge badge-amber"
-                          style={{ fontSize: "1rem", padding: ".3rem 1rem" }}
-                        >
-                          {vote.votes} voix
-                        </span>
-                      </div>
-                    </div>
-                  ))
+                    ))}
+                </div>
               )}
               {hasTie && (
                 <div
@@ -1146,7 +1167,8 @@ function PalmaresView({ showFlash, user }) {
                     textAlign: "center",
                   }}
                 >
-                  ⚠️ Égalité détectée — L'administrateur va départager.
+                  ⚠️ <strong>Égalité détectée</strong> — L'administrateur va
+                  départager les photos ex-aequo.
                 </div>
               )}
             </div>
