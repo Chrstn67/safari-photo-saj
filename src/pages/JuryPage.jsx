@@ -18,6 +18,7 @@ export default function JuryPage() {
   const [flash, setFlash] = useState("");
   const [slideshowMode, setSlideshowMode] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [loadingPhoto, setLoadingPhoto] = useState(false);
 
   const TABS = [
     { id: "notation", label: "Notation", icon: "📋" },
@@ -43,8 +44,11 @@ export default function JuryPage() {
         if (open.current_photo?.url) {
           setCurrentPhoto(open.current_photo);
         } else if (open.current_photo?.id) {
-          loadCurrentPhoto(open.category_id, open.current_photo.id);
+          await loadCurrentPhoto(open.category_id, open.current_photo.id);
         }
+      } else {
+        setActiveSession(null);
+        setCurrentPhoto(null);
       }
     } catch (e) {
       console.error(e);
@@ -62,6 +66,8 @@ export default function JuryPage() {
   }, [activeSession?.current_photo?.id]);
 
   async function loadCurrentPhoto(categoryId, photoId) {
+    if (!photoId) return;
+    setLoadingPhoto(true);
     try {
       const [photoData, myScores, vals] = await Promise.all([
         api.get(`/categories/${categoryId}/current-photo`),
@@ -81,46 +87,94 @@ export default function JuryPage() {
       setValidations(vals.validations || []);
     } catch (e) {
       console.error(e);
+    } finally {
+      setLoadingPhoto(false);
     }
   }
 
+  // Abonnements Realtime pour mises à jour automatiques
   useEffect(() => {
     if (!activeSession) return;
-    const unsub1 = subscribe("jury_validations", "*", () => {
+
+    // Abonnement aux validations
+    const unsubValidations = subscribe("jury_validations", "*", () => {
       api
         .get(`/deliberations/${activeSession.category_id}/validations`)
         .then((v) => setValidations(v.validations || []));
     });
-    const unsub2 = subscribe("deliberation_sessions", "UPDATE", (payload) => {
-      if (payload.new.category_id === activeSession.category_id) {
-        setSessions((prev) =>
-          prev.map((s) =>
-            s.category_id === activeSession.category_id
-              ? { ...s, ...payload.new }
-              : s,
-          ),
-        );
-        setActiveSession((prev) => ({ ...prev, ...payload.new }));
-        if (payload.new.current_photo_id !== activeSession.current_photo?.id) {
-          setValidated(false);
-          setScores({});
+
+    // Abonnement aux sessions (détecter changement de photo)
+    const unsubSessions = subscribe(
+      "deliberation_sessions",
+      "UPDATE",
+      async (payload) => {
+        if (payload.new.category_id === activeSession.category_id) {
+          // Mettre à jour la session
+          setSessions((prev) =>
+            prev.map((s) =>
+              s.category_id === activeSession.category_id
+                ? { ...s, ...payload.new, categories: s.categories }
+                : s,
+            ),
+          );
+
+          // Mettre à jour activeSession
+          setActiveSession((prev) => ({
+            ...prev,
+            ...payload.new,
+            categories: prev?.categories,
+          }));
+
+          // Si l'ID de la photo a changé, recharger
+          if (
+            payload.new.current_photo_id !== activeSession.current_photo?.id
+          ) {
+            setValidated(false);
+            setScores({});
+            if (payload.new.current_photo_id) {
+              await loadCurrentPhoto(
+                activeSession.category_id,
+                payload.new.current_photo_id,
+              );
+            } else {
+              setCurrentPhoto(null);
+            }
+          }
         }
+      },
+    );
+
+    // Abonnement aux scores (pour mises à jour en temps réel)
+    const unsubScores = subscribe("scores", "INSERT", (payload) => {
+      if (
+        payload.new.submission_id === currentPhoto?.id &&
+        payload.new.juror_id === user.id
+      ) {
+        setScores((prev) => ({
+          ...prev,
+          [payload.new.criterion_id]: payload.new.value,
+        }));
       }
     });
+
     return () => {
-      unsub1();
-      unsub2();
+      unsubValidations();
+      unsubSessions();
+      unsubScores();
     };
-  }, [activeSession?.category_id]);
+  }, [
+    activeSession?.category_id,
+    activeSession?.current_photo?.id,
+    currentPhoto?.id,
+    user.id,
+  ]);
 
   async function handleScoreChange(criterionId, value) {
     if (validated) return;
+    const criterion = criteria.find((c) => c.id === criterionId);
     const v = Math.max(
       0,
-      Math.min(
-        criteria.find((c) => c.id === criterionId)?.max_points || 5,
-        parseFloat(value) || 0,
-      ),
+      Math.min(criterion?.max_points || 5, parseFloat(value) || 0),
     );
     setScores((prev) => ({ ...prev, [criterionId]: v }));
     try {
@@ -142,14 +196,13 @@ export default function JuryPage() {
       });
       setValidated(true);
       showFlash("✅ Notes validées !");
+
+      // Si tous les jurés ont validé, l'auto-next est déclenché côté serveur
       if (res.allValidated) {
         showFlash("✅ Tous ont validé — passage automatique…");
+        // Recharger les données après un court délai
         setTimeout(() => {
-          api
-            .post("/deliberations/next", {
-              categoryId: activeSession.category_id,
-            })
-            .then(loadSessions);
+          loadSessions();
         }, 1500);
       }
     } catch (e) {
@@ -182,6 +235,7 @@ export default function JuryPage() {
   );
   const maxTotal = criteria.reduce((a, c) => a + (c.max_points || 5), 0);
 
+  // Mode diaporama
   if (slideshowMode && activeSession && currentPhoto) {
     return (
       <div className="slideshow">
@@ -300,7 +354,15 @@ export default function JuryPage() {
                         <button
                           key={s.category_id}
                           className={`btn${activeSession?.category_id === s.category_id ? " btn-primary" : ""}`}
-                          onClick={() => setActiveSession(s)}
+                          onClick={async () => {
+                            setActiveSession(s);
+                            if (s.current_photo?.id) {
+                              await loadCurrentPhoto(
+                                s.category_id,
+                                s.current_photo.id,
+                              );
+                            }
+                          }}
                         >
                           {s.categories?.name}
                         </button>
@@ -338,7 +400,19 @@ export default function JuryPage() {
                       </div>
 
                       <div className="panel" style={{ marginBottom: "1rem" }}>
-                        {currentPhoto.url ? (
+                        {loadingPhoto ? (
+                          <div
+                            style={{
+                              height: 400,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              color: "var(--ink-faint)",
+                            }}
+                          >
+                            <span className="spinner spinner-lg" />
+                          </div>
+                        ) : currentPhoto.url ? (
                           <img
                             src={currentPhoto.url}
                             alt=""
@@ -445,6 +519,13 @@ export default function JuryPage() {
                     </div>
                   </>
                 )}
+
+                {activeSession && !currentPhoto && !loadingPhoto && (
+                  <div className="info-banner banner-amber">
+                    <span className="banner-icon">📸</span>
+                    Aucune photo en cours dans cette catégorie.
+                  </div>
+                )}
               </>
             )}
 
@@ -517,18 +598,6 @@ function PalmaresView({ showFlash, user }) {
       showFlash("❌ " + e.message);
     } finally {
       setVoting(false);
-    }
-  };
-
-  const handleFinalize = async (submissionId) => {
-    if (!confirm("Finaliser le Prix de l'œil avec cette photo ?")) return;
-    try {
-      await api.post("/results/eye-prize/finalize", { submissionId });
-      showFlash("✅ Prix de l'œil finalisé !");
-      await loadData();
-      setShowResultsModal(false);
-    } catch (e) {
-      showFlash("❌ " + e.message);
     }
   };
 
@@ -639,9 +708,7 @@ function PalmaresView({ showFlash, user }) {
             .filter((r) => r.rank === 1)
             .map((winner, idx) => {
               const categoryName = winner.categories?.name;
-              const authorName = winner.submissions?.users
-                ? `${winner.submissions.users.first_name} ${winner.submissions.users.last_name}`
-                : null;
+              const authorName = winner.author;
               return (
                 <div key={idx} className="card">
                   <div
@@ -687,65 +754,26 @@ function PalmaresView({ showFlash, user }) {
         <div className="section-header">
           <div className="section-title">❤️ Coup de cœur du jury</div>
         </div>
-        {data.favoriteCounts && data.favoriteCounts.length > 0 ? (
-          <div
-            className="photo-grid"
-            style={{
-              gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
-            }}
-          >
-            {data.favoriteCounts
-              .sort((a, b) => b.count - a.count)
-              .map((fav, idx) => (
-                <div
-                  key={idx}
-                  className="card"
-                  style={{ textAlign: "center", padding: "1rem" }}
-                >
-                  {fav.photoUrl ? (
-                    <img
-                      src={fav.photoUrl}
-                      alt=""
-                      style={{
-                        width: "100%",
-                        height: "150px",
-                        objectFit: "cover",
-                        borderRadius: "8px",
-                        marginBottom: ".5rem",
-                      }}
-                    />
-                  ) : (
-                    <div
-                      style={{
-                        width: "100%",
-                        height: "150px",
-                        background: "var(--sand-dark)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        borderRadius: "8px",
-                        marginBottom: ".5rem",
-                      }}
-                    >
-                      📷
-                    </div>
-                  )}
-                  <div style={{ fontWeight: 700 }}>{fav.anonymousId}</div>
-                  {fav.author && (
-                    <div
-                      style={{ fontSize: ".75rem", color: "var(--ink-muted)" }}
-                    >
-                      {fav.author}
-                    </div>
-                  )}
-                  <div
-                    className="badge badge-amber"
-                    style={{ marginTop: ".5rem" }}
-                  >
-                    {fav.count} coup(s) de cœur
-                  </div>
-                </div>
-              ))}
+        {data.topFavorite ? (
+          <div className="card" style={{ textAlign: "center" }}>
+            <div style={{ fontSize: "2.5rem", marginBottom: ".5rem" }}>❤️</div>
+            <div
+              style={{
+                fontFamily: "'DM Serif Display', serif",
+                fontSize: "1.2rem",
+                color: "var(--red)",
+              }}
+            >
+              {data.topFavorite.anonymousId}
+            </div>
+            <div style={{ fontSize: ".8rem", color: "var(--ink-muted)" }}>
+              {data.topFavorite.author && `par ${data.topFavorite.author}`}
+              {data.topFavorite.categoryName &&
+                ` · ${data.topFavorite.categoryName}`}
+            </div>
+            <div className="badge badge-amber" style={{ marginTop: ".5rem" }}>
+              {data.topFavorite.totalFavorites} coup(s) de cœur
+            </div>
           </div>
         ) : (
           <div className="info-banner banner-amber">
@@ -1104,14 +1132,6 @@ function PalmaresView({ showFlash, user }) {
                             {vote.votes} voix
                           </span>
                         </div>
-                        {isJuror && (
-                          <button
-                            className="btn btn-sm btn-primary"
-                            onClick={() => handleFinalize(vote.submissionId)}
-                          >
-                            🏆 Finaliser
-                          </button>
-                        )}
                       </div>
                     ))}
                 </div>

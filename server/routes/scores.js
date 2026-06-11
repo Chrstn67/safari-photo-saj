@@ -1,4 +1,4 @@
-// backend/routes/scores.js
+// backend/routes/scores.js - Version avec auto-next
 import express from "express";
 import supabase from "../utils/supabase.js";
 import { requireAuth, requireJuror } from "../middleware/auth.js";
@@ -6,11 +6,10 @@ import { log } from "../utils/audit.js";
 
 const router = express.Router();
 
-/* ── GET /api/scores/:submissionId  — notes du juré courant sur cette photo ── */
+/* ── GET /api/scores/:submissionId  ── */
 router.get("/:submissionId", requireAuth, requireJuror, async (req, res) => {
   const { submissionId } = req.params;
 
-  // L'admin et les jurés ne voient que leurs propres notes pendant la délibération
   const { data, error } = await supabase
     .from("scores")
     .select("*, criteria(id, name, icon, max_points)")
@@ -21,7 +20,7 @@ router.get("/:submissionId", requireAuth, requireJuror, async (req, res) => {
   res.json(data);
 });
 
-/* ── GET /api/scores/:submissionId/all  — toutes les notes (après validation complète) ── */
+/* ── GET /api/scores/:submissionId/all  ── */
 router.get(
   "/:submissionId/all",
   requireAuth,
@@ -29,7 +28,6 @@ router.get(
   async (req, res) => {
     const { submissionId } = req.params;
 
-    // Vérifier que toutes les notes sont validées pour cette photo
     const { data: scores } = await supabase
       .from("scores")
       .select("is_validated")
@@ -52,7 +50,6 @@ router.get(
 
     if (error) return res.status(500).json({ error: error.message });
 
-    // ANONYMISATION : remplace les noms par "Juré X" si pas admin
     const sanitized = data.map((s, i) => ({
       ...s,
       jurorName:
@@ -66,7 +63,7 @@ router.get(
   },
 );
 
-/* ── PUT /api/scores  — saisir/modifier une note (avant validation) ── */
+/* ── PUT /api/scores  ── */
 router.put("/", requireAuth, requireJuror, async (req, res) => {
   const { submissionId, criterionId, value } = req.body;
 
@@ -83,7 +80,6 @@ router.put("/", requireAuth, requireJuror, async (req, res) => {
     return res.status(400).json({ error: "Note entre 0 et 20" });
   }
 
-  // Vérifie que le juré n'a pas déjà validé cette soumission
   const { data: existingValidation } = await supabase
     .from("jury_validations")
     .select("id")
@@ -117,21 +113,19 @@ router.put("/", requireAuth, requireJuror, async (req, res) => {
   res.json(data);
 });
 
-/* ── POST /api/scores/validate  — valider toutes ses notes pour une photo ── */
+/* ── POST /api/scores/validate  — avec auto-next amélioré ── */
 router.post("/validate", requireAuth, requireJuror, async (req, res) => {
   const { submissionId } = req.body;
   if (!submissionId)
     return res.status(400).json({ error: "submissionId requis" });
 
   try {
-    // Marquer toutes les notes du juré comme validées
     await supabase
       .from("scores")
       .update({ is_validated: true })
       .eq("submission_id", submissionId)
       .eq("juror_id", req.user.id);
 
-    // Enregistrer la validation
     const { error: valErr } = await supabase.from("jury_validations").upsert(
       {
         juror_id: req.user.id,
@@ -145,7 +139,14 @@ router.post("/validate", requireAuth, requireJuror, async (req, res) => {
 
     await log(req.user.id, "SCORE_VALIDATE", "scores", submissionId);
 
-    // Vérifier si tous les jurés ont validé → déclencher passage automatique
+    // Récupérer la catégorie de cette soumission
+    const { data: submission } = await supabase
+      .from("submissions")
+      .select("category_id")
+      .eq("id", submissionId)
+      .single();
+
+    // Vérifier si tous les jurés ont validé
     const { data: allJurors } = await supabase
       .from("users")
       .select("id")
@@ -157,17 +158,46 @@ router.post("/validate", requireAuth, requireJuror, async (req, res) => {
       .eq("submission_id", submissionId);
 
     const validatedIds = (validations || []).map((v) => v.juror_id);
-    const allValidated = (allJurors || []).every((j) =>
-      validatedIds.includes(j.id),
-    );
+    const allValidated =
+      (allJurors || []).length > 0 &&
+      (allJurors || []).every((j) => validatedIds.includes(j.id));
 
-    res.json({ success: true, allValidated });
+    let nextPhotoTriggered = false;
+    if (allValidated) {
+      try {
+        // Appeler automatiquement la photo suivante
+        const nextRes = await fetch(
+          `${process.env.API_URL || "http://localhost:4000"}/api/deliberations/next`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: req.headers.authorization,
+            },
+            body: JSON.stringify({
+              categoryId: submission?.category_id,
+              forced: false,
+            }),
+          },
+        );
+        nextPhotoTriggered = nextRes.ok;
+      } catch (nextErr) {
+        console.error("[Auto-next] Erreur:", nextErr.message);
+      }
+    }
+
+    res.json({
+      success: true,
+      allValidated,
+      nextPhotoTriggered,
+      categoryId: submission?.category_id,
+    });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-/* ── POST /api/scores/favorite  — coup de cœur ── */
+/* ── POST /api/scores/favorite  ── */
 router.post("/favorite", requireAuth, requireJuror, async (req, res) => {
   const { submissionId, categoryId } = req.body;
   if (!submissionId || !categoryId) {
@@ -175,7 +205,6 @@ router.post("/favorite", requireAuth, requireJuror, async (req, res) => {
   }
 
   try {
-    // Un seul coup de cœur par catégorie par juré
     const { data: existing } = await supabase
       .from("favorites")
       .select("id, submission_id")
@@ -185,11 +214,9 @@ router.post("/favorite", requireAuth, requireJuror, async (req, res) => {
 
     if (existing) {
       if (existing.submission_id === submissionId) {
-        // Retirer si c'est la même photo
         await supabase.from("favorites").delete().eq("id", existing.id);
         return res.json({ removed: true });
       }
-      // Remplacer
       await supabase
         .from("favorites")
         .update({ submission_id: submissionId })
@@ -210,11 +237,10 @@ router.post("/favorite", requireAuth, requireJuror, async (req, res) => {
   }
 });
 
-/* ── GET /api/scores/summary/:categoryId  — résumé par catégorie (admin ou post-publication) ── */
+/* ── GET /api/scores/summary/:categoryId  ── */
 router.get("/summary/:categoryId", requireAuth, async (req, res) => {
   const { categoryId } = req.params;
 
-  // Récupère toutes les soumissions + leurs scores
   const { data: subs } = await supabase
     .from("submissions")
     .select(

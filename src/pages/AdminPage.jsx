@@ -267,6 +267,7 @@ function DeliberationTab({ showFlash }) {
   const [sessions, setSessions] = useState([]);
   const [validations, setValidations] = useState({});
   const [loading, setLoading] = useState(false);
+  const [forceNextLoading, setForceNextLoading] = useState(false);
   const { user } = useAuth();
 
   const load = useCallback(async () => {
@@ -352,6 +353,70 @@ function DeliberationTab({ showFlash }) {
       showFlash("❌ " + e.message);
     }
   }
+
+  async function forceNextGlobal() {
+    // Trouver la session ouverte
+    const openSession = sessions.find((s) => s.status === "open");
+    if (!openSession) {
+      showFlash("⚠️ Aucune délibération en cours");
+      return;
+    }
+
+    if (
+      !confirm(
+        `Forcer le passage à la photo suivante dans "${openSession.categories?.name}" ?`,
+      )
+    )
+      return;
+
+    setForceNextLoading(true);
+    try {
+      const res = await api.post("/deliberations/next", {
+        categoryId: openSession.category_id,
+        forced: true,
+      });
+      if (res.done) {
+        showFlash("✅ Catégorie terminée !");
+      } else {
+        showFlash("⏩ Photo suivante");
+      }
+      load(); // Recharger les sessions
+    } catch (e) {
+      showFlash("❌ " + e.message);
+    } finally {
+      setForceNextLoading(false);
+    }
+  }
+
+  // Ajouter ce bouton en haut du composant DeliberationTab, avant la liste des catégories
+  {
+    /* Bouton "Photo suivante" unique */
+  }
+  <div style={{ marginBottom: "1rem" }}>
+    <button
+      className={`btn btn-primary ${forceNextLoading ? "loading" : ""}`}
+      onClick={forceNextGlobal}
+      disabled={forceNextLoading || !sessions.some((s) => s.status === "open")}
+      style={{
+        background: "var(--amber)",
+        padding: ".6rem 1.2rem",
+        fontSize: ".9rem",
+      }}
+    >
+      {forceNextLoading ? "⏳" : "⏩ Photo suivante"}
+    </button>
+    <span
+      style={{
+        fontSize: ".75rem",
+        marginLeft: ".75rem",
+        color: "var(--ink-muted)",
+      }}
+    >
+      {sessions.some((s) => s.status === "open")
+        ? "Forcer le passage à la photo suivante (même si tous les jurés n'ont pas validé)"
+        : "Aucune session ouverte"}
+    </span>
+  </div>;
 
   /* ── Supprimer complètement une session ── */
   async function deleteSession(categoryId, categoryName) {

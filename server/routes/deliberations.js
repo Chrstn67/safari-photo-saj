@@ -1,4 +1,4 @@
-// backend/routes/deliberations.js
+// backend/routes/deliberations.js - Version avec auto-next et bouton unique
 import express from "express";
 import supabase from "../utils/supabase.js";
 import { requireAuth, requireAdmin, requireJuror } from "../middleware/auth.js";
@@ -7,7 +7,7 @@ import { log } from "../utils/audit.js";
 
 const router = express.Router();
 
-/* ── GET /api/deliberations  — état de toutes les sessions AVEC URLs ── */
+/* ── GET /api/deliberations  ── */
 router.get("/", requireAuth, requireJuror, async (req, res) => {
   const { data, error } = await supabase
     .from("deliberation_sessions")
@@ -27,7 +27,6 @@ router.get("/", requireAuth, requireJuror, async (req, res) => {
 
   if (error) return res.status(500).json({ error: error.message });
 
-  // Ajouter les URLs signées pour chaque session
   const withUrls = await Promise.all(
     (data || []).map(async (session) => {
       let photoUrl = null;
@@ -57,7 +56,7 @@ router.get("/", requireAuth, requireJuror, async (req, res) => {
   res.json(withUrls);
 });
 
-/* ── GET /api/deliberations/active  — sessions actives UNIQUEMENT (pour jurés) ── */
+/* ── GET /api/deliberations/active  ── */
 router.get("/active", requireAuth, requireJuror, async (req, res) => {
   const { data, error } = await supabase
     .from("deliberation_sessions")
@@ -82,57 +81,10 @@ router.get("/active", requireAuth, requireJuror, async (req, res) => {
     (data || []).map(async (session) => {
       let photoUrl = null;
       if (session.current_photo?.photos?.storage_path) {
-        const { data: signed } = await supabase.storage
-          .from("photos")
-          .createSignedUrl(session.current_photo.photos.storage_path, 3600);
-        photoUrl = signed?.signedUrl;
-      }
-
-      return {
-        ...session,
-        current_photo: session.current_photo
-          ? {
-              ...session.current_photo,
-              url: photoUrl,
-            }
-          : null,
-      };
-    }),
-  );
-
-  res.json(withUrls);
-});
-
-/* ── GET /api/deliberations/active  — sessions actives UNIQUEMENT ── */
-router.get("/active", requireAuth, requireJuror, async (req, res) => {
-  const { data, error } = await supabase
-    .from("deliberation_sessions")
-    .select(
-      `
-      *,
-      categories(id, name, description),
-      current_photo:submissions!current_photo_id(
-        id, 
-        anonymous_id, 
-        display_order,
-        photo:photos(storage_path, filename)
-      )
-    `,
-    )
-    .eq("status", "open")
-    .order("created_at");
-
-  if (error) return res.status(500).json({ error: error.message });
-
-  // Ajouter les URLs signées
-  const withUrls = await Promise.all(
-    (data || []).map(async (session) => {
-      let photoUrl = null;
-      if (session.current_photo?.photo?.storage_path) {
         try {
           const { data: signed } = await supabase.storage
             .from("photos")
-            .createSignedUrl(session.current_photo.photo.storage_path, 3600);
+            .createSignedUrl(session.current_photo.photos.storage_path, 3600);
           photoUrl = signed?.signedUrl;
         } catch (err) {
           console.error("Erreur URL:", err.message);
@@ -156,7 +108,7 @@ router.get("/active", requireAuth, requireJuror, async (req, res) => {
   res.json(withUrls);
 });
 
-/* ── POST /api/deliberations/open  — ouvrir une catégorie ── */
+/* ── POST /api/deliberations/open  ── */
 router.post("/open", requireAuth, requireAdmin, async (req, res) => {
   const { categoryId } = req.body;
   if (!categoryId) return res.status(400).json({ error: "categoryId requis" });
@@ -176,7 +128,6 @@ router.post("/open", requireAuth, requireAdmin, async (req, res) => {
 
     const shuffled = shuffleArray(subs.map((s) => s.id));
 
-    // Assigne display_order
     for (let i = 0; i < shuffled.length; i++) {
       await supabase
         .from("submissions")
@@ -210,7 +161,7 @@ router.post("/open", requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
-/* ── POST /api/deliberations/next  — photo suivante ── */
+/* ── POST /api/deliberations/next  — avec auto-next amélioré ── */
 router.post("/next", requireAuth, requireJuror, async (req, res) => {
   const { categoryId, forced = false } = req.body;
 
@@ -235,12 +186,11 @@ router.post("/next", requireAuth, requireJuror, async (req, res) => {
 
     const currentOrder = session.current_photo?.display_order || 0;
 
-    // Vérification des validations (sauf si forcé)
     if (!forced) {
       const { data: allJurors } = await supabase
         .from("users")
         .select("id")
-        .in("role_id", [2, 3]); // jurés + admins
+        .in("role_id", [2, 3]);
 
       const { data: validations } = await supabase
         .from("jury_validations")
@@ -248,9 +198,9 @@ router.post("/next", requireAuth, requireJuror, async (req, res) => {
         .eq("submission_id", session.current_photo_id);
 
       const validatedIds = (validations || []).map((v) => v.juror_id);
-      const allValidated = (allJurors || []).every((j) =>
-        validatedIds.includes(j.id),
-      );
+      const allValidated =
+        (allJurors || []).length > 0 &&
+        (allJurors || []).every((j) => validatedIds.includes(j.id));
 
       if (!allValidated) {
         return res.status(400).json({
@@ -263,7 +213,6 @@ router.post("/next", requireAuth, requireJuror, async (req, res) => {
       }
     }
 
-    // Photo suivante
     const { data: nextPhoto } = await supabase
       .from("submissions")
       .select("id, display_order")
@@ -288,7 +237,7 @@ router.post("/next", requireAuth, requireJuror, async (req, res) => {
         session.id,
         { categoryId },
       );
-      return res.json({ done: true, session: closed });
+      return res.json({ done: true, session: closed, categoryId });
     }
 
     const { data: updated } = await supabase
@@ -298,13 +247,18 @@ router.post("/next", requireAuth, requireJuror, async (req, res) => {
       .select()
       .single();
 
-    res.json({ done: false, session: updated, nextPhotoId: nextPhoto.id });
+    res.json({
+      done: false,
+      session: updated,
+      nextPhotoId: nextPhoto.id,
+      categoryId,
+    });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-/* ── POST /api/deliberations/close  — fermer ── */
+/* ── POST /api/deliberations/close  ── */
 router.post("/close", requireAuth, requireAdmin, async (req, res) => {
   const { categoryId } = req.body;
   const { data, error } = await supabase
@@ -318,7 +272,7 @@ router.post("/close", requireAuth, requireAdmin, async (req, res) => {
   res.json(data);
 });
 
-/* ── POST /api/deliberations/reset  — réinitialiser ── */
+/* ── POST /api/deliberations/reset  ── */
 router.post("/reset", requireAuth, requireAdmin, async (req, res) => {
   const { categoryId } = req.body;
   try {
@@ -396,7 +350,7 @@ router.get(
   },
 );
 
-/* ── DELETE /api/deliberations/session/:categoryId  — Supprimer une session de délibération ── */
+/* ── DELETE /api/deliberations/session/:categoryId  ── */
 router.delete(
   "/session/:categoryId",
   requireAuth,
@@ -409,7 +363,6 @@ router.delete(
     }
 
     try {
-      // 1. Récupérer toutes les soumissions de cette catégorie
       const { data: submissions, error: subError } = await supabase
         .from("submissions")
         .select("id, photo_id")
@@ -420,67 +373,41 @@ router.delete(
       const submissionIds = (submissions || []).map((s) => s.id);
       const photoIds = (submissions || []).map((s) => s.photo_id);
 
-      // 2. Supprimer les scores liés à ces soumissions
       if (submissionIds.length > 0) {
-        const { error: scoresError } = await supabase
+        await supabase
           .from("scores")
           .delete()
           .in("submission_id", submissionIds);
-
-        if (scoresError) throw scoresError;
-
-        // 3. Supprimer les validations des jurés
-        const { error: validationsError } = await supabase
+        await supabase
           .from("jury_validations")
           .delete()
           .in("submission_id", submissionIds);
-
-        if (validationsError) throw validationsError;
-
-        // 4. Supprimer les favoris/coups de cœur
-        const { error: favoritesError } = await supabase
+        await supabase
           .from("favorites")
           .delete()
           .in("submission_id", submissionIds);
-
-        if (favoritesError) throw favoritesError;
-
-        // 5. Supprimer les résultats calculés
-        const { error: resultsError } = await supabase
+        await supabase
           .from("results")
           .delete()
           .in("submission_id", submissionIds);
-
-        if (resultsError) throw resultsError;
-
-        // 6. Supprimer les soumissions
-        const { error: deleteSubError } = await supabase
+        await supabase
           .from("submissions")
           .delete()
           .eq("category_id", categoryId);
-
-        if (deleteSubError) throw deleteSubError;
       }
 
-      // 7. Mettre à jour les photos : les marquer comme non soumises
       if (photoIds.length > 0) {
-        const { error: photosError } = await supabase
+        await supabase
           .from("photos")
           .update({ is_submitted: false })
           .in("id", photoIds);
-
-        if (photosError) throw photosError;
       }
 
-      // 8. Supprimer ou réinitialiser la session de délibération
-      const { error: sessionError } = await supabase
+      await supabase
         .from("deliberation_sessions")
         .delete()
         .eq("category_id", categoryId);
 
-      if (sessionError) throw sessionError;
-
-      // 9. Journaliser l'action
       await log(
         req.user.id,
         "DELIB_SESSION_DELETED",

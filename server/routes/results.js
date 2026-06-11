@@ -1,5 +1,4 @@
-// backend/routes/results.js - Version complète et corrigée
-
+// backend/routes/results.js - Version corrigée
 import express from "express";
 import supabase from "../utils/supabase.js";
 import { requireAuth, requireAdmin, requireJuror } from "../middleware/auth.js";
@@ -7,9 +6,13 @@ import { log } from "../utils/audit.js";
 
 const router = express.Router();
 
-/* ── Calcul des scores moyens pour une catégorie ── */
+// ════════════════════════════════════════════════════════════════
+// FONCTION DE CALCUL DES MOYENNES (corrigée)
+// ════════════════════════════════════════════════════════════════
 async function computeAverages(categoryId) {
-  // Récupérer toutes les soumissions de la catégorie avec leurs scores
+  console.log(`[computeAverages] Catégorie ${categoryId}`);
+
+  // Récupérer toutes les soumissions de la catégorie
   const { data: submissions, error: subError } = await supabase
     .from("submissions")
     .select(
@@ -17,11 +20,7 @@ async function computeAverages(categoryId) {
       id, 
       anonymous_id, 
       display_order, 
-      user_id,
-      scores!scores_submission_id_fkey (
-        value, 
-        juror_id
-      )
+      user_id
     `,
     )
     .eq("category_id", categoryId);
@@ -32,14 +31,40 @@ async function computeAverages(categoryId) {
   }
 
   if (!submissions || submissions.length === 0) {
+    console.log(
+      `[computeAverages] Aucune soumission pour catégorie ${categoryId}`,
+    );
     return [];
   }
 
-  const results = submissions.map((sub) => {
+  console.log(`[computeAverages] ${submissions.length} soumissions trouvées`);
+
+  const results = [];
+
+  for (const sub of submissions) {
+    // Récupérer les scores pour cette soumission
+    const { data: scores, error: scoreError } = await supabase
+      .from("scores")
+      .select("value, juror_id")
+      .eq("submission_id", sub.id);
+
+    if (scoreError) {
+      console.error(
+        `[computeAverages] Erreur scores pour ${sub.id}:`,
+        scoreError,
+      );
+      continue;
+    }
+
+    if (!scores || scores.length === 0) {
+      console.log(
+        `[computeAverages] Aucun score pour soumission ${sub.anonymous_id}`,
+      );
+      continue;
+    }
+
     // Grouper les scores par juré
     const byJuror = {};
-    const scores = sub.scores || [];
-
     scores.forEach((s) => {
       if (!byJuror[s.juror_id]) {
         byJuror[s.juror_id] = 0;
@@ -53,7 +78,7 @@ async function computeAverages(categoryId) {
       : 0;
     const total = jurorTotals.reduce((a, b) => a + b, 0);
 
-    return {
+    results.push({
       submissionId: sub.id,
       anonymousId: sub.anonymous_id,
       displayOrder: sub.display_order,
@@ -61,14 +86,18 @@ async function computeAverages(categoryId) {
       average: Math.round(avg * 100) / 100,
       totalScore: total,
       jurorCount: jurorTotals.length,
-    };
-  });
+    });
+  }
 
   // Trier par moyenne décroissante
-  return results.sort((a, b) => b.average - a.average);
+  const sorted = results.sort((a, b) => b.average - a.average);
+  console.log(`[computeAverages] ${sorted.length} résultats calculés`);
+  return sorted;
 }
 
-/* ── GET /api/results/status ── */
+// ════════════════════════════════════════════════════════════════
+// GET /api/results/status
+// ════════════════════════════════════════════════════════════════
 router.get("/status", requireAuth, async (req, res) => {
   try {
     const { data } = await supabase
@@ -77,10 +106,15 @@ router.get("/status", requireAuth, async (req, res) => {
       .limit(1)
       .maybeSingle();
 
+    // Vérifier s'il y a des résultats calculés
+    const { count } = await supabase
+      .from("results")
+      .select("*", { count: "exact", head: true });
+
     res.json({
       isPublished: data?.is_published === true,
       jurorsCanView: data?.jurors_can_view === true,
-      hasResults: data !== null,
+      hasResults: (count || 0) > 0,
     });
   } catch (e) {
     console.error("[status] Erreur:", e);
@@ -88,67 +122,9 @@ router.get("/status", requireAuth, async (req, res) => {
   }
 });
 
-/* ── GET /api/results ── */
-router.get("/", requireAuth, async (req, res) => {
-  const isAdmin = req.user.role === "admin";
-  const isJuror = req.user.role === "juror";
-  const isParticipant = req.user.role === "participant";
-
-  try {
-    const { data: settings } = await supabase
-      .from("results")
-      .select("is_published, jurors_can_view")
-      .limit(1)
-      .maybeSingle();
-
-    const jurorsCanView = settings?.jurors_can_view === true;
-    const isPublished = settings?.is_published === true;
-
-    let canView = false;
-    if (isAdmin) canView = true;
-    else if (isJuror) canView = jurorsCanView;
-    else if (isParticipant) canView = isPublished;
-
-    if (!canView) {
-      return res.status(403).json({ error: "Résultats non disponibles" });
-    }
-
-    const { data: results, error } = await supabase
-      .from("results")
-      .select(
-        `
-        *,
-        categories(id, name),
-        submissions!submission_id(
-          id, 
-          anonymous_id, 
-          display_order,
-          photos(storage_path),
-          users(first_name, last_name)
-        )
-      `,
-      )
-      .order("category_id")
-      .order("rank");
-
-    if (error) throw error;
-
-    const sanitized = (results || []).map((r) => ({
-      ...r,
-      author:
-        (isPublished || isAdmin || isJuror) && r.submissions?.users
-          ? `${r.submissions.users.first_name} ${r.submissions.users.last_name}`
-          : null,
-    }));
-
-    res.json(sanitized);
-  } catch (e) {
-    console.error("[GET /results] Erreur:", e);
-    res.status(500).json({ error: e.message });
-  }
-});
-
-/* ── POST /api/results/compute — CALCUL DES RÉSULTATS CORRIGÉ ── */
+// ════════════════════════════════════════════════════════════════
+// POST /api/results/compute — CALCUL DES RÉSULTATS (corrigé)
+// ════════════════════════════════════════════════════════════════
 router.post("/compute", requireAuth, requireAdmin, async (req, res) => {
   console.log("[COMPUTE] Début du calcul des résultats");
 
@@ -170,80 +146,81 @@ router.post("/compute", requireAuth, requireAdmin, async (req, res) => {
 
     console.log(`[COMPUTE] ${categories.length} catégories trouvées`);
 
-    // 2. Vérifier qu'il y a des scores
-    const { data: scoreCheck, error: scoreError } = await supabase
-      .from("scores")
-      .select("id")
-      .limit(1);
-
-    if (scoreError) {
-      console.error("[COMPUTE] Erreur vérification scores:", scoreError);
-    }
-
-    if (!scoreCheck || scoreCheck.length === 0) {
-      return res.status(400).json({
-        error: "Aucune note saisie — impossible de calculer les résultats",
-      });
-    }
-
-    console.log("[COMPUTE] Des scores existent, poursuite du calcul");
-
-    // 3. Supprimer les anciens résultats
+    // 2. Supprimer les anciens résultats
     const { error: deleteError } = await supabase
       .from("results")
       .delete()
       .neq("id", "00000000-0000-0000-0000-000000000000");
 
     if (deleteError) {
-      console.error(
-        "[COMPUTE] Erreur suppression anciens résultats:",
-        deleteError,
-      );
+      console.error("[COMPUTE] Erreur suppression:", deleteError);
       return res.status(500).json({ error: deleteError.message });
     }
 
     console.log("[COMPUTE] Anciens résultats supprimés");
 
     const allResults = [];
+    let categoriesWithResults = 0;
 
-    // 4. Pour chaque catégorie, calculer les moyennes
+    // 3. Pour chaque catégorie, calculer les moyennes
     for (const cat of categories) {
-      console.log(`[COMPUTE] Traitement de la catégorie: ${cat.name}`);
+      console.log(`[COMPUTE] Traitement: ${cat.name}`);
 
       const ranked = await computeAverages(cat.id);
 
       if (ranked.length === 0) {
-        console.warn(
-          `[COMPUTE] Catégorie "${cat.name}" sans soumissions notées, ignorée`,
-        );
+        console.warn(`[COMPUTE] Catégorie "${cat.name}" sans données, ignorée`);
         continue;
       }
 
-      console.log(
-        `[COMPUTE] ${ranked.length} soumissions notées dans ${cat.name}`,
-      );
+      categoriesWithResults++;
+      console.log(`[COMPUTE] ${ranked.length} résultats pour ${cat.name}`);
 
       for (let i = 0; i < ranked.length; i++) {
         const r = ranked[i];
 
-        const { data: inserted, error: insertError } = await supabase
+        // Vérifier si le résultat existe déjà
+        const { data: existing } = await supabase
           .from("results")
-          .insert({
-            category_id: cat.id,
-            submission_id: r.submissionId,
-            rank: i + 1,
-            average_score: r.average,
-            total_score: r.totalScore,
-            is_published: false,
-            jurors_can_view: false,
-            computed_at: new Date().toISOString(),
-          })
-          .select()
-          .single();
+          .select("id")
+          .eq("category_id", cat.id)
+          .eq("submission_id", r.submissionId)
+          .maybeSingle();
 
-        if (insertError) {
-          console.error("[COMPUTE] Erreur insertion résultat:", insertError);
-          return res.status(500).json({ error: insertError.message });
+        let inserted;
+        if (existing) {
+          const { data: updated, error: updateError } = await supabase
+            .from("results")
+            .update({
+              rank: i + 1,
+              average_score: r.average,
+              total_score: r.totalScore,
+              computed_at: new Date().toISOString(),
+            })
+            .eq("id", existing.id)
+            .select()
+            .single();
+
+          if (updateError) throw updateError;
+          inserted = updated;
+        } else {
+          const { data: newResult, error: insertError } = await supabase
+            .from("results")
+            .insert({
+              category_id: cat.id,
+              submission_id: r.submissionId,
+              rank: i + 1,
+              average_score: r.average,
+              total_score: r.totalScore,
+              is_published: false,
+              jurors_can_view: false,
+              computed_at: new Date().toISOString(),
+            })
+            .select()
+            .single();
+
+          if (insertError) throw insertError;
+          inserted = newResult;
         }
 
         allResults.push(inserted);
@@ -253,38 +230,44 @@ router.post("/compute", requireAuth, requireAdmin, async (req, res) => {
     if (allResults.length === 0) {
       return res.status(400).json({
         error:
-          "Aucun résultat calculé — vérifiez que des notes ont été saisies",
+          "Aucun résultat calculé — vérifiez que des notes ont été saisies dans au moins une catégorie",
       });
     }
 
     console.log(
-      `[COMPUTE] ${allResults.length} résultats calculés avec succès`,
+      `[COMPUTE] SUCCÈS: ${allResults.length} résultats, ${categoriesWithResults} catégories`,
     );
 
-    await log(req.user.id, "RESULTS_COMPUTE", "results", null);
-    res.json({ computed: allResults.length, results: allResults });
+    await log(req.user.id, "RESULTS_COMPUTE", "results", null, {
+      count: allResults.length,
+      categories: categoriesWithResults,
+    });
+
+    res.json({
+      computed: allResults.length,
+      categories: categoriesWithResults,
+      results: allResults,
+    });
   } catch (e) {
     console.error("[COMPUTE] Exception:", e);
     res.status(500).json({ error: e.message });
   }
 });
 
-/* ── POST /api/results/publish-to-jurors ── */
+// ════════════════════════════════════════════════════════════════
+// POST /api/results/publish-to-jurors
+// ════════════════════════════════════════════════════════════════
 router.post(
   "/publish-to-jurors",
   requireAuth,
   requireAdmin,
   async (req, res) => {
     try {
-      // Vérifier qu'il y a des résultats
-      const { data: check, error: checkError } = await supabase
+      const { count } = await supabase
         .from("results")
-        .select("id")
-        .limit(1);
+        .select("*", { count: "exact", head: true });
 
-      if (checkError) throw checkError;
-
-      if (!check || check.length === 0) {
+      if ((count || 0) === 0) {
         return res.status(400).json({
           error:
             "Aucun résultat calculé. Cliquez d'abord sur 'Calculer les résultats'.",
@@ -310,21 +293,20 @@ router.post(
   },
 );
 
-/* ── POST /api/results/publish-to-participants ── */
+// ════════════════════════════════════════════════════════════════
+// POST /api/results/publish-to-participants
+// ════════════════════════════════════════════════════════════════
 router.post(
   "/publish-to-participants",
   requireAuth,
   requireAdmin,
   async (req, res) => {
     try {
-      const { data: check, error: checkError } = await supabase
+      const { count } = await supabase
         .from("results")
-        .select("id")
-        .limit(1);
+        .select("*", { count: "exact", head: true });
 
-      if (checkError) throw checkError;
-
-      if (!check || check.length === 0) {
+      if ((count || 0) === 0) {
         return res.status(400).json({
           error:
             "Aucun résultat calculé. Cliquez d'abord sur 'Calculer les résultats'.",
@@ -359,7 +341,9 @@ router.post(
   },
 );
 
-/* ── POST /api/results/unpublish ── */
+// ════════════════════════════════════════════════════════════════
+// POST /api/results/unpublish
+// ════════════════════════════════════════════════════════════════
 router.post("/unpublish", requireAuth, requireAdmin, async (req, res) => {
   try {
     const { error } = await supabase
@@ -377,7 +361,9 @@ router.post("/unpublish", requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
-/* ── GET /api/results/palmares ── */
+// ════════════════════════════════════════════════════════════════
+// GET /api/results/palmares
+// ════════════════════════════════════════════════════════════════
 router.get("/palmares", requireAuth, async (req, res) => {
   const isAdmin = req.user.role === "admin";
   const isJuror = req.user.role === "juror";
@@ -402,61 +388,89 @@ router.get("/palmares", requireAuth, async (req, res) => {
       return res.status(403).json({ error: "Palmarès non disponible" });
     }
 
-    // Récupérer les résultats
-    const { data: results } = await supabase
+    // Récupérer les résultats avec JOIN corrects
+    const { data: results, error: resultsError } = await supabase
       .from("results")
       .select(
         `
-        rank, 
-        average_score, 
-        total_score, 
+        id,
+        rank,
+        average_score,
+        total_score,
         category_id,
-        categories(name),
-        submissions!submission_id(
-          id, 
+        categories!results_category_id_fkey (
+          id,
+          name
+        ),
+        submissions!results_submission_id_fkey (
+          id,
           anonymous_id,
-          photos(storage_path),
-          users!user_id(first_name, last_name)
+          display_order,
+          photo_id,
+          photos!submissions_photo_id_fkey (
+            storage_path
+          ),
+          users!submissions_user_id_fkey (
+            first_name,
+            last_name
+          )
         )
       `,
       )
       .order("category_id")
       .order("rank");
 
-    // Ajouter les URLs signées pour les photos
+    if (resultsError) {
+      console.error("[palmares] Erreur:", resultsError);
+      return res.status(500).json({ error: resultsError.message });
+    }
+
+    // Ajouter les URLs signées
     const resultsWithUrls = await Promise.all(
       (results || []).map(async (r) => {
         let photoUrl = null;
-        if (r.submissions?.photos?.storage_path) {
+        const storagePath = r.submissions?.photos?.storage_path;
+        if (storagePath) {
           try {
             const { data: signed } = await supabase.storage
               .from("photos")
-              .createSignedUrl(r.submissions.photos.storage_path, 3600);
+              .createSignedUrl(storagePath, 3600);
             photoUrl = signed?.signedUrl;
-          } catch (err) {}
+          } catch (err) {
+            console.error("Erreur URL:", err.message);
+          }
         }
+
+        const author = r.submissions?.users
+          ? `${r.submissions.users.first_name} ${r.submissions.users.last_name}`
+          : null;
+
         return {
           ...r,
-          submissions: { ...r.submissions, photoUrl },
+          author,
+          submissions: {
+            ...r.submissions,
+            photoUrl,
+          },
         };
       }),
     );
 
-    // Classement général
+    // Classement général par photographe
     const userScores = {};
     (resultsWithUrls || []).forEach((r) => {
-      const u = r.submissions?.users;
-      if (!u) return;
-      const key = `${u.first_name} ${u.last_name}`;
-      if (!userScores[key]) {
-        userScores[key] = {
-          name: key,
+      const author = r.author;
+      if (!author) return;
+
+      if (!userScores[author]) {
+        userScores[author] = {
+          name: author,
           total: 0,
           finalists: 0,
         };
       }
-      userScores[key].total += r.average_score || 0;
-      if (r.rank === 1) userScores[key].finalists++;
+      userScores[author].total += r.average_score || 0;
+      if (r.rank === 1) userScores[author].finalists++;
     });
 
     const generalRanking = Object.values(userScores).sort(
@@ -465,29 +479,52 @@ router.get("/palmares", requireAuth, async (req, res) => {
     const bestPhotographer = generalRanking[0] || null;
 
     // Récupérer les coups de cœur
-    const { data: favorites } = await supabase.from("favorites").select(`
+    const { data: favorites, error: favError } = await supabase.from(
+      "favorites",
+    ).select(`
+        id,
         submission_id,
-        submissions!submission_id(
+        category_id,
+        submissions!favorites_submission_id_fkey (
           id,
           anonymous_id,
-          users(first_name, last_name),
-          categories(name),
-          photos(storage_path)
+          users!submissions_user_id_fkey (
+            first_name,
+            last_name
+          ),
+          categories!submissions_category_id_fkey (
+            name
+          ),
+          photos!submissions_photo_id_fkey (
+            storage_path
+          )
         )
       `);
+
+    if (favError) {
+      console.error("[palmares] Erreur favorites:", favError);
+    }
 
     const favoritesWithUrls = await Promise.all(
       (favorites || []).map(async (fav) => {
         let photoUrl = null;
-        if (fav.submissions?.photos?.storage_path) {
+        const storagePath = fav.submissions?.photos?.storage_path;
+        if (storagePath) {
           try {
             const { data: signed } = await supabase.storage
               .from("photos")
-              .createSignedUrl(fav.submissions.photos.storage_path, 3600);
+              .createSignedUrl(storagePath, 3600);
             photoUrl = signed?.signedUrl;
           } catch (err) {}
         }
-        return { ...fav, submissions: { ...fav.submissions, photoUrl } };
+
+        return {
+          ...fav,
+          submissions: {
+            ...fav.submissions,
+            photoUrl,
+          },
+        };
       }),
     );
 
@@ -503,6 +540,7 @@ router.get("/palmares", requireAuth, async (req, res) => {
           author: fav.submissions?.users
             ? `${fav.submissions.users.first_name} ${fav.submissions.users.last_name}`
             : null,
+          categoryName: fav.submissions?.categories?.name,
           photoUrl: fav.submissions?.photoUrl,
         };
       }
@@ -518,49 +556,28 @@ router.get("/palmares", requireAuth, async (req, res) => {
       }
     });
 
-    // Toutes les soumissions pour le vote
-    const { data: allSubmissions } = await supabase
-      .from("submissions")
-      .select(
-        `
-        id, 
-        anonymous_id, 
-        display_order, 
-        category_id, 
-        categories(name), 
-        photos(storage_path), 
-        users(first_name, last_name)
-      `,
-      )
-      .order("created_at");
-
-    const submissionsWithUrls = await Promise.all(
-      (allSubmissions || []).map(async (sub) => {
-        let photoUrl = null;
-        if (sub.photos?.storage_path) {
-          try {
-            const { data: signed } = await supabase.storage
-              .from("photos")
-              .createSignedUrl(sub.photos.storage_path, 3600);
-            photoUrl = signed?.signedUrl;
-          } catch (err) {}
-        }
-        return { ...sub, photoUrl };
-      }),
-    );
-
     // Prix de l'œil finalisé
     const { data: eyePrizeResult } = await supabase
       .from("eye_prize_result")
       .select(
         `
-        *,
-        submissions!submission_id(
-          id, 
-          anonymous_id, 
-          users(first_name, last_name), 
-          categories(name), 
-          photos(storage_path)
+        id,
+        total_votes,
+        is_finalized,
+        finalized_at,
+        submissions!eye_prize_result_submission_id_fkey (
+          id,
+          anonymous_id,
+          users!submissions_user_id_fkey (
+            first_name,
+            last_name
+          ),
+          categories!submissions_category_id_fkey (
+            name
+          ),
+          photos!submissions_photo_id_fkey (
+            storage_path
+          )
         )
       `,
       )
@@ -586,6 +603,8 @@ router.get("/palmares", requireAuth, async (req, res) => {
       } catch (err) {
         eyePrizeWithUrl = eyePrizeResult;
       }
+    } else {
+      eyePrizeWithUrl = eyePrizeResult;
     }
 
     res.json({
@@ -595,7 +614,7 @@ router.get("/palmares", requireAuth, async (req, res) => {
         ? { ...topFavorite, totalFavorites: maxFavs }
         : null,
       bestPhotographer: bestPhotographer,
-      allSubmissions: submissionsWithUrls || [],
+      generalRanking: generalRanking,
       eyePrize: eyePrizeWithUrl,
       jurorsCanView,
       isPublished,
@@ -606,32 +625,56 @@ router.get("/palmares", requireAuth, async (req, res) => {
   }
 });
 
-/* ════════════════════════════════════════════════════════════════
-   PRIX DE L'ŒIL - ROUTES
-════════════════════════════════════════════════════════════════ */
+// ════════════════════════════════════════════════════════════════
+// PRIX DE L'ŒIL - ROUTES
+// ════════════════════════════════════════════════════════════════
 
 router.get("/eye-prize/votes", requireAuth, requireJuror, async (req, res) => {
   try {
-    const { data: votes } = await supabase.from("eye_prize_votes").select(`
-        id, juror_id, submission_id, voted_at,
-        submissions!submission_id(
-          id, anonymous_id, users(first_name, last_name), categories(name), photos(storage_path)
-        ),
-        users!juror_id(first_name, last_name)
+    const { data: votes, error: votesError } = await supabase.from(
+      "eye_prize_votes",
+    ).select(`
+        id,
+        juror_id,
+        submission_id,
+        voted_at,
+        submissions!eye_prize_votes_submission_id_fkey (
+          id,
+          anonymous_id,
+          users!submissions_user_id_fkey (
+            first_name,
+            last_name
+          ),
+          categories!submissions_category_id_fkey (
+            name
+          ),
+          photos!submissions_photo_id_fkey (
+            storage_path
+          )
+        )
       `);
+
+    if (votesError) throw votesError;
 
     const votesWithUrls = await Promise.all(
       (votes || []).map(async (vote) => {
         let photoUrl = null;
-        if (vote.submissions?.photos?.storage_path) {
+        const storagePath = vote.submissions?.photos?.storage_path;
+        if (storagePath) {
           try {
             const { data: signed } = await supabase.storage
               .from("photos")
-              .createSignedUrl(vote.submissions.photos.storage_path, 3600);
+              .createSignedUrl(storagePath, 3600);
             photoUrl = signed?.signedUrl;
           } catch (err) {}
         }
-        return { ...vote, submissions: { ...vote.submissions, photoUrl } };
+        return {
+          ...vote,
+          submissions: {
+            ...vote.submissions,
+            photoUrl,
+          },
+        };
       }),
     );
 
@@ -653,10 +696,27 @@ router.get("/eye-prize/votes", requireAuth, requireJuror, async (req, res) => {
     });
 
     const myVote = votesWithUrls?.find((v) => v.juror_id === req.user.id);
+
     const { data: finalResult } = await supabase
       .from("eye_prize_result")
       .select(
-        `*, submissions!submission_id(id, anonymous_id, users(first_name, last_name), categories(name), photos(storage_path))`,
+        `
+        *,
+        submissions!eye_prize_result_submission_id_fkey (
+          id,
+          anonymous_id,
+          users!submissions_user_id_fkey (
+            first_name,
+            last_name
+          ),
+          categories!submissions_category_id_fkey (
+            name
+          ),
+          photos!submissions_photo_id_fkey (
+            storage_path
+          )
+        )
+      `,
       )
       .eq("is_finalized", true)
       .maybeSingle();
@@ -738,6 +798,7 @@ router.post(
         .from("eye_prize_result")
         .delete()
         .neq("id", "00000000-0000-0000-0000-000000000000");
+
       const { data: result } = await supabase
         .from("eye_prize_result")
         .insert({
@@ -770,60 +831,6 @@ router.post("/eye-prize/reset", requireAuth, requireAdmin, async (req, res) => {
     res.json({ success: true, message: "Votes réinitialisés" });
   } catch (e) {
     console.error("[eye-prize/reset] Erreur:", e);
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// Route de diagnostic - À SUPPRIMER APRÈS DÉBOGAGE
-router.get("/debug/scores", requireAuth, requireAdmin, async (req, res) => {
-  try {
-    // Compter les scores
-    const { count: scoresCount, error: scoresError } = await supabase
-      .from("scores")
-      .select("*", { count: "exact", head: true });
-
-    // Compter les soumissions
-    const { count: submissionsCount, error: subError } = await supabase
-      .from("submissions")
-      .select("*", { count: "exact", head: true });
-
-    // Compter les catégories
-    const { data: categories, error: catError } = await supabase
-      .from("categories")
-      .select("id, name, is_active");
-
-    // Récupérer un exemple de scores
-    const { data: sampleScores, error: sampleError } = await supabase
-      .from("scores")
-      .select(
-        `
-        id,
-        value,
-        submission_id,
-        juror_id,
-        submissions!inner(
-          id,
-          anonymous_id,
-          category_id,
-          categories!inner(name)
-        )
-      `,
-      )
-      .limit(5);
-
-    res.json({
-      scoresCount,
-      submissionsCount,
-      categories: categories || [],
-      sampleScores: sampleScores || [],
-      errors: {
-        scoresError: scoresError?.message,
-        subError: subError?.message,
-        catError: catError?.message,
-        sampleError: sampleError?.message,
-      },
-    });
-  } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
