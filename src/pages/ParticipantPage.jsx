@@ -11,7 +11,7 @@ export default function ParticipantPage() {
   const [tab, setTab] = useState("bank");
   const [uploading, setUploading] = useState(false);
   const [flash, setFlash] = useState("");
-  const [submitModal, setSubmitModal] = useState(null); // photo à soumettre
+  const [submitModal, setSubmitModal] = useState(null);
   const [preview, setPreview] = useState(null);
   const fileRef = useRef();
 
@@ -77,13 +77,6 @@ export default function ParticipantPage() {
     }
   }
 
-  // Catégories déjà soumises
-  const submittedCats = photos.filter((p) => p.is_submitted).map(() => null); // simplifié
-  const getSubmittedCat = (catId) =>
-    photos.some(
-      (p) => p.is_submitted && p.category_submissions?.includes(catId),
-    );
-
   const TABS = [
     { id: "bank", label: "Ma banque", icon: "🖼️" },
     { id: "submit", label: "Soumettre", icon: "📤" },
@@ -116,18 +109,21 @@ export default function ParticipantPage() {
         }
       />
 
-      {/* Bottom Nav mobile */}
+      {/* Bottom Nav — structure identique à Admin/Jury mais sans burger
+          (pas de side-panel sur cette page) */}
       <nav className="bottom-nav">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            className={`bottom-tab${tab === t.id ? " active" : ""}`}
-            onClick={() => setTab(t.id)}
-          >
-            <span className="tab-icon">{t.icon}</span>
-            <span>{t.label}</span>
-          </button>
-        ))}
+        <div className="bottom-tabs">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              className={`bottom-tab${tab === t.id ? " active" : ""}`}
+              onClick={() => setTab(t.id)}
+            >
+              <span className="tab-icon">{t.icon}</span>
+              <span>{t.label}</span>
+            </button>
+          ))}
+        </div>
       </nav>
 
       <div className="page">
@@ -178,8 +174,9 @@ export default function ParticipantPage() {
                     className="photo-item"
                     onClick={() => setPreview(photo)}
                   >
-                    {photo.url && <img src={photo.url} alt="" loading="lazy" />}
-                    {!photo.url && (
+                    {photo.url ? (
+                      <img src={photo.url} alt="" loading="lazy" />
+                    ) : (
                       <div
                         style={{
                           display: "flex",
@@ -397,7 +394,7 @@ export default function ParticipantPage() {
       {preview && (
         <div className="modal-backdrop" onClick={() => setPreview(null)}>
           <div
-            style={{ maxWidth: 700, width: "100%" }}
+            style={{ maxWidth: 700, width: "100%", padding: "0 1rem" }}
             onClick={(e) => e.stopPropagation()}
           >
             {preview.url && (
@@ -407,7 +404,7 @@ export default function ParticipantPage() {
                 style={{
                   width: "100%",
                   borderRadius: 12,
-                  maxHeight: "80dvh",
+                  maxHeight: "75dvh",
                   objectFit: "contain",
                 }}
               />
@@ -418,6 +415,7 @@ export default function ParticipantPage() {
                 justifyContent: "center",
                 gap: ".5rem",
                 marginTop: "1rem",
+                flexWrap: "wrap",
               }}
             >
               {!preview.is_submitted && (
