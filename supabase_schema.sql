@@ -1,197 +1,153 @@
--- ═══════════════════════════════════════════════════════
--- SAFARI PHOTO · SCHÉMA SUPABASE COMPLET
--- ═══════════════════════════════════════════════════════
--- Exécuter dans l'éditeur SQL Supabase dans l'ordre ci-dessous
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
 
--- Extensions
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-
--- ── ROLES ──────────────────────────────────────────────
-CREATE TABLE roles (
-  id   SERIAL PRIMARY KEY,
-  name TEXT NOT NULL UNIQUE   -- 'participant', 'juror', 'admin'
+CREATE TABLE public.roles (
+  id integer NOT NULL DEFAULT nextval('roles_id_seq'::regclass),
+  name text NOT NULL UNIQUE,
+  CONSTRAINT roles_pkey PRIMARY KEY (id)
 );
-INSERT INTO roles (name) VALUES ('participant'), ('juror'), ('admin');
-
--- ── USERS ──────────────────────────────────────────────
-CREATE TABLE users (
-  id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  first_name   TEXT NOT NULL,
-  last_name    TEXT NOT NULL,
-  password_hash TEXT NOT NULL,
-  role_id      INT  NOT NULL REFERENCES roles(id) DEFAULT 1,
-  is_active    BOOLEAN DEFAULT TRUE,
-  created_at   TIMESTAMPTZ DEFAULT NOW()
+CREATE TABLE public.users (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  first_name text NOT NULL,
+  last_name text NOT NULL,
+  password_hash text NOT NULL,
+  role_id integer NOT NULL DEFAULT 1,
+  is_active boolean DEFAULT true,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT users_pkey PRIMARY KEY (id),
+  CONSTRAINT users_role_id_fkey FOREIGN KEY (role_id) REFERENCES public.roles(id)
 );
--- Index pour connexion rapide
-CREATE UNIQUE INDEX users_name_idx ON users (lower(first_name), lower(last_name));
-
--- ── CATEGORIES ─────────────────────────────────────────
-CREATE TABLE categories (
-  id          SERIAL PRIMARY KEY,
-  name        TEXT NOT NULL,
-  description TEXT,
-  is_active   BOOLEAN DEFAULT TRUE,
-  sort_order  INT DEFAULT 0,
-  created_at  TIMESTAMPTZ DEFAULT NOW()
+CREATE TABLE public.categories (
+  id integer NOT NULL DEFAULT nextval('categories_id_seq'::regclass),
+  name text NOT NULL,
+  description text,
+  is_active boolean DEFAULT true,
+  sort_order integer DEFAULT 0,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT categories_pkey PRIMARY KEY (id)
 );
-INSERT INTO categories (name, description, sort_order) VALUES
-  ('🏛️ Ville & Vie Locale',      'Bâtiments, rues, patrimoine urbain, scènes humaines', 1),
-  ('🍇 Végétation',              'Vignobles, forêts, saisons, végétaux',                 2),
-  ('🦊 Animaux & Insectes',      'Faune sauvage / domestique',                           3),
-  ('🌅 Ciel & Jeux de lumière',  'Levers, couchers, nuages',                             4),
-  ('💫 Coup de cœur libre',      'Libre expression',                                     5);
-
--- ── CRITERIA ───────────────────────────────────────────
-CREATE TABLE criteria (
-  id          SERIAL PRIMARY KEY,
-  name        TEXT NOT NULL,
-  description TEXT,
-  icon        TEXT,
-  max_points  NUMERIC(4,1) DEFAULT 5,
-  weight      NUMERIC(4,2) DEFAULT 1.0,
-  is_active   BOOLEAN DEFAULT TRUE,
-  sort_order  INT DEFAULT 0
+CREATE TABLE public.criteria (
+  id integer NOT NULL DEFAULT nextval('criteria_id_seq'::regclass),
+  name text NOT NULL,
+  description text,
+  icon text,
+  max_points numeric DEFAULT 5,
+  weight numeric DEFAULT 1.0,
+  is_active boolean DEFAULT true,
+  sort_order integer DEFAULT 0,
+  CONSTRAINT criteria_pkey PRIMARY KEY (id)
 );
-INSERT INTO criteria (name, description, icon, max_points, sort_order) VALUES
-  ('Technique',        'Netteté, lumière, exposition, qualité générale', '🔧', 5, 1),
-  ('Composition',      'Cadrage, équilibre visuel, mise en valeur du sujet', '📐', 5, 2),
-  ('Respect du thème', 'Correspondance de la photo avec la catégorie choisie', '🎯', 5, 3),
-  ('Originalité',      'Créativité, émotion suscitée, impact visuel', '✨', 5, 4);
-
--- ── PHOTOS (banque personnelle) ────────────────────────
-CREATE TABLE photos (
-  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  filename      TEXT NOT NULL,
-  original_name TEXT,
-  mime_type     TEXT,
-  size_bytes    INT,
-  storage_path  TEXT NOT NULL,   -- chemin dans Supabase Storage
-  is_submitted  BOOLEAN DEFAULT FALSE,
-  created_at    TIMESTAMPTZ DEFAULT NOW()
+CREATE TABLE public.photos (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  user_id uuid NOT NULL,
+  filename text NOT NULL,
+  original_name text,
+  mime_type text,
+  size_bytes integer,
+  storage_path text NOT NULL,
+  is_submitted boolean DEFAULT false,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT photos_pkey PRIMARY KEY (id),
+  CONSTRAINT photos_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
 );
-CREATE INDEX photos_user_idx ON photos(user_id);
-
--- ── SUBMISSIONS ────────────────────────────────────────
-CREATE TABLE submissions (
-  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  photo_id      UUID NOT NULL REFERENCES photos(id),
-  user_id       UUID NOT NULL REFERENCES users(id),
-  category_id   INT  NOT NULL REFERENCES categories(id),
-  anonymous_id  TEXT NOT NULL UNIQUE,   -- ex: PHOTO-0001-CAT-3
-  display_order INT,                    -- position aveugle dans la catégorie
-  submitted_at  TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(user_id, category_id)          -- 1 photo par catégorie par participant
+CREATE TABLE public.submissions (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  photo_id uuid NOT NULL,
+  user_id uuid NOT NULL,
+  category_id integer NOT NULL,
+  anonymous_id text NOT NULL UNIQUE,
+  display_order integer,
+  submitted_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT submissions_pkey PRIMARY KEY (id),
+  CONSTRAINT submissions_photo_id_fkey FOREIGN KEY (photo_id) REFERENCES public.photos(id),
+  CONSTRAINT submissions_category_id_fkey FOREIGN KEY (category_id) REFERENCES public.categories(id),
+  CONSTRAINT submissions_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
 );
-CREATE INDEX submissions_cat_idx ON submissions(category_id);
-
--- ── DELIBERATION SESSIONS ──────────────────────────────
-CREATE TABLE deliberation_sessions (
-  id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  category_id         INT NOT NULL REFERENCES categories(id),
-  current_photo_id    UUID REFERENCES submissions(id),
-  status              TEXT DEFAULT 'pending',  -- pending | open | closed | completed
-  opened_at           TIMESTAMPTZ,
-  closed_at           TIMESTAMPTZ,
-  created_by          UUID REFERENCES users(id)
+CREATE TABLE public.scores (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  submission_id uuid NOT NULL,
+  juror_id uuid NOT NULL,
+  criterion_id integer NOT NULL,
+  value numeric DEFAULT 0 CHECK (value >= 0::numeric),
+  is_validated boolean DEFAULT false,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT scores_pkey PRIMARY KEY (id),
+  CONSTRAINT scores_criterion_id_fkey FOREIGN KEY (criterion_id) REFERENCES public.criteria(id),
+  CONSTRAINT scores_juror_id_fkey FOREIGN KEY (juror_id) REFERENCES public.users(id),
+  CONSTRAINT scores_submission_id_fkey FOREIGN KEY (submission_id) REFERENCES public.submissions(id)
 );
-CREATE UNIQUE INDEX delib_cat_unique ON deliberation_sessions(category_id);
-
--- ── SCORES ─────────────────────────────────────────────
-CREATE TABLE scores (
-  id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  submission_id  UUID NOT NULL REFERENCES submissions(id) ON DELETE CASCADE,
-  juror_id       UUID NOT NULL REFERENCES users(id),
-  criterion_id   INT  NOT NULL REFERENCES criteria(id),
-  value          NUMERIC(4,1) DEFAULT 0 CHECK (value >= 0),
-  is_validated   BOOLEAN DEFAULT FALSE,
-  created_at     TIMESTAMPTZ DEFAULT NOW(),
-  updated_at     TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(submission_id, juror_id, criterion_id)
+CREATE TABLE public.favorites (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  juror_id uuid NOT NULL,
+  submission_id uuid NOT NULL,
+  category_id integer NOT NULL,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT favorites_pkey PRIMARY KEY (id),
+  CONSTRAINT favorites_category_id_fkey FOREIGN KEY (category_id) REFERENCES public.categories(id),
+  CONSTRAINT favorites_juror_id_fkey FOREIGN KEY (juror_id) REFERENCES public.users(id),
+  CONSTRAINT favorites_submission_id_fkey FOREIGN KEY (submission_id) REFERENCES public.submissions(id)
 );
-CREATE INDEX scores_submission_idx ON scores(submission_id);
-CREATE INDEX scores_juror_idx ON scores(juror_id);
-
--- ── FAVORITES (coups de cœur) ──────────────────────────
-CREATE TABLE favorites (
-  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  juror_id      UUID NOT NULL REFERENCES users(id),
-  submission_id UUID NOT NULL REFERENCES submissions(id),
-  category_id   INT  NOT NULL REFERENCES categories(id),
-  created_at    TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(juror_id, category_id)   -- 1 seul coup de cœur par juré par catégorie
+CREATE TABLE public.results (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  category_id integer,
+  submission_id uuid,
+  rank integer,
+  average_score numeric,
+  total_score numeric,
+  is_published boolean DEFAULT false,
+  published_at timestamp with time zone,
+  published_by uuid,
+  computed_at timestamp with time zone DEFAULT now(),
+  jurors_can_view boolean DEFAULT false,
+  CONSTRAINT results_pkey PRIMARY KEY (id),
+  CONSTRAINT results_category_id_fkey FOREIGN KEY (category_id) REFERENCES public.categories(id),
+  CONSTRAINT results_published_by_fkey FOREIGN KEY (published_by) REFERENCES public.users(id),
+  CONSTRAINT results_submission_id_fkey FOREIGN KEY (submission_id) REFERENCES public.submissions(id)
 );
-
--- ── RESULTS ────────────────────────────────────────────
-CREATE TABLE results (
-  id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  category_id     INT  REFERENCES categories(id),
-  submission_id   UUID REFERENCES submissions(id),
-  rank            INT,
-  average_score   NUMERIC(5,2),
-  total_score     NUMERIC(7,2),
-  is_published    BOOLEAN DEFAULT FALSE,
-  published_at    TIMESTAMPTZ,
-  published_by    UUID REFERENCES users(id),
-  computed_at     TIMESTAMPTZ DEFAULT NOW()
+CREATE TABLE public.jury_validations (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  juror_id uuid NOT NULL,
+  submission_id uuid NOT NULL,
+  validated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT jury_validations_pkey PRIMARY KEY (id),
+  CONSTRAINT jury_validations_juror_id_fkey FOREIGN KEY (juror_id) REFERENCES public.users(id),
+  CONSTRAINT jury_validations_submission_id_fkey FOREIGN KEY (submission_id) REFERENCES public.submissions(id)
 );
-
--- ── JURY VALIDATION (suivi par photo/juré) ─────────────
-CREATE TABLE jury_validations (
-  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  juror_id      UUID NOT NULL REFERENCES users(id),
-  submission_id UUID NOT NULL REFERENCES submissions(id),
-  validated_at  TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(juror_id, submission_id)
+CREATE TABLE public.audit_log (
+  id bigint NOT NULL DEFAULT nextval('audit_log_id_seq'::regclass),
+  user_id uuid,
+  action text NOT NULL,
+  entity text,
+  entity_id text,
+  details jsonb,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT audit_log_pkey PRIMARY KEY (id),
+  CONSTRAINT audit_log_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
 );
-
--- ── AUDIT LOG ─────────────────────────────────────────
-CREATE TABLE audit_log (
-  id         BIGSERIAL PRIMARY KEY,
-  user_id    UUID REFERENCES users(id),
-  action     TEXT NOT NULL,
-  entity     TEXT,
-  entity_id  TEXT,
-  details    JSONB,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+CREATE TABLE public.notes (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  juror_id uuid NOT NULL,
+  submission_id uuid NOT NULL,
+  content text,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT notes_pkey PRIMARY KEY (id),
+  CONSTRAINT notes_juror_id_fkey FOREIGN KEY (juror_id) REFERENCES public.users(id),
+  CONSTRAINT notes_submission_id_fkey FOREIGN KEY (submission_id) REFERENCES public.submissions(id)
 );
-
--- ── NOTES / COMMENTAIRES ──────────────────────────────
-CREATE TABLE notes (
-  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  juror_id      UUID NOT NULL REFERENCES users(id),
-  submission_id UUID NOT NULL REFERENCES submissions(id),
-  content       TEXT,
-  created_at    TIMESTAMPTZ DEFAULT NOW(),
-  updated_at    TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(juror_id, submission_id)
+CREATE TABLE public.deliberation_sessions (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  category_id integer NOT NULL,
+  current_photo_id uuid,
+  status text DEFAULT 'pending'::text,
+  opened_at timestamp with time zone,
+  closed_at timestamp with time zone,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  created_by uuid,
+  CONSTRAINT deliberation_sessions_pkey PRIMARY KEY (id),
+  CONSTRAINT deliberation_sessions_category_id_fkey FOREIGN KEY (category_id) REFERENCES public.categories(id),
+  CONSTRAINT deliberation_sessions_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id),
+  CONSTRAINT deliberation_sessions_current_photo_id_fkey FOREIGN KEY (current_photo_id) REFERENCES public.submissions(id)
 );
-
--- ═══════════════════════════════════════════════════════
--- ROW LEVEL SECURITY
--- ═══════════════════════════════════════════════════════
--- NB : L'API REST Node.js utilise la clé SERVICE_ROLE
--- qui bypass RLS. Ces policies protègent l'accès direct.
-
-ALTER TABLE users               ENABLE ROW LEVEL SECURITY;
-ALTER TABLE photos              ENABLE ROW LEVEL SECURITY;
-ALTER TABLE submissions         ENABLE ROW LEVEL SECURITY;
-ALTER TABLE scores              ENABLE ROW LEVEL SECURITY;
-ALTER TABLE favorites           ENABLE ROW LEVEL SECURITY;
-ALTER TABLE jury_validations    ENABLE ROW LEVEL SECURITY;
-
--- Seul le service role (backend) a accès complet
--- (pas de client Supabase direct côté front — tout passe par l'API Node)
-
--- ═══════════════════════════════════════════════════════
--- REALTIME : activer sur les tables nécessaires
--- ═══════════════════════════════════════════════════════
--- Dans le dashboard Supabase > Database > Replication,
--- activer pour : deliberation_sessions, jury_validations, scores, results
-
--- ═══════════════════════════════════════════════════════
--- STORAGE : créer le bucket 'photos'
--- ═══════════════════════════════════════════════════════
--- Dashboard > Storage > New Bucket > "photos" > Private

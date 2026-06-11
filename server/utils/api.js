@@ -1,10 +1,8 @@
 // src/utils/api.js
 const getBaseUrl = () => {
-  // En production sur Vercel, l'API est sur le même domaine
   if (import.meta.env.PROD) {
     return "";
   }
-  // En développement local
   return import.meta.env.VITE_API_URL || "http://localhost:4000";
 };
 
@@ -23,14 +21,13 @@ async function request(method, path, body = null, isFormData = false) {
   const opts = { method, headers };
   if (body) opts.body = isFormData ? body : JSON.stringify(body);
 
-  // Construction de l'URL complète
   const url = `${BASE}/api${path}`;
   const res = await fetch(url, opts);
 
   if (res.status === 401) {
     localStorage.removeItem("safari_token");
     window.location.href = "/login";
-    return;
+    throw new Error("Session expirée");
   }
 
   const data = await res.json().catch(() => ({}));
