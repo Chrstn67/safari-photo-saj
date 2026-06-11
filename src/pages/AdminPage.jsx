@@ -1,4 +1,4 @@
-// frontend/src/pages/AdminPage.jsx - VERSION COMPLÈTE CORRIGÉE
+// frontend/src/pages/AdminPage.jsx
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "../../server/hooks/useAuth.jsx";
 import { api } from "../../server/utils/api.js";
@@ -402,7 +402,6 @@ function DeliberationTab({ showFlash }) {
           <div className="section-title">Gestion des délibérations</div>
         </div>
 
-        {/* Bouton "Photo suivante" unique */}
         <div style={{ marginBottom: "1rem" }}>
           <button
             className={`btn btn-primary ${forceNextLoading ? "loading" : ""}`}
@@ -1322,6 +1321,17 @@ function AdminResultsTab({ showFlash, user }) {
     }
   };
 
+  // CORRECTION: Utiliser la bonne route eye-prize/finalize
+  const handleSelectEyePrize = async (submissionId) => {
+    try {
+      await api.post("/results/eye-prize/finalize", { submissionId });
+      showFlash("✅ Prix de l'œil attribué !");
+      await loadData();
+    } catch (e) {
+      showFlash("❌ " + e.message);
+    }
+  };
+
   useEffect(() => {
     loadData();
   }, []);
@@ -1460,14 +1470,17 @@ function AdminResultsTab({ showFlash, user }) {
           data={palmaresData}
           showFlash={showFlash}
           isAdmin={true}
+          onSelectEyePrize={handleSelectEyePrize}
         />
       ) : null}
     </div>
   );
 }
 
-/* ── Composant d'affichage du palmarès pour admin (SANS bouton attribuer) ── */
-function AdminPalmaresDisplay({ data, showFlash, isAdmin }) {
+/* ── Composant d'affichage du palmarès pour admin ── */
+function AdminPalmaresDisplay({ data, showFlash, isAdmin, onSelectEyePrize }) {
+  const [eyePrizeMode, setEyePrizeMode] = useState(false);
+
   if (!data || !data.generalRanking?.length) {
     return (
       <div className="empty-state">
@@ -1762,10 +1775,95 @@ function AdminPalmaresDisplay({ data, showFlash, isAdmin }) {
                 `par ${data.eyePrize.submissions.users.first_name} ${data.eyePrize.submissions.users.last_name}`}
             </div>
           </div>
+        ) : isAdmin && eyePrizeMode ? (
+          <div className="panel">
+            <div
+              className="section-header"
+              style={{ padding: ".85rem 1rem 0" }}
+            >
+              <div className="section-title">
+                Sélectionner la photo gagnante
+              </div>
+              <button
+                className="btn btn-sm"
+                onClick={() => setEyePrizeMode(false)}
+              >
+                ✕
+              </button>
+            </div>
+            <div
+              className="photo-grid"
+              style={{
+                maxHeight: "400px",
+                overflowY: "auto",
+                padding: ".75rem",
+              }}
+            >
+              {(data.allSubmissions || []).map((sub) => (
+                <div
+                  key={sub.id}
+                  className="photo-item"
+                  onClick={() => onSelectEyePrize(sub.id)}
+                  style={{ cursor: "pointer" }}
+                >
+                  {sub.photoUrl ? (
+                    <img
+                      src={sub.photoUrl}
+                      alt=""
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        objectFit: "cover",
+                      }}
+                    />
+                  ) : (
+                    <div
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        background: "var(--sand-dark)",
+                      }}
+                    >
+                      📷
+                    </div>
+                  )}
+                  <div
+                    className="photo-overlay"
+                    style={{
+                      opacity: 1,
+                      background:
+                        "linear-gradient(to top, rgba(0,0,0,.7) 0%, transparent 70%)",
+                    }}
+                  >
+                    <div
+                      style={{
+                        color: "#fff",
+                        fontSize: ".7rem",
+                        textAlign: "center",
+                        width: "100%",
+                      }}
+                    >
+                      {sub.anonymous_id}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : isAdmin ? (
+          <button
+            className="btn btn-primary btn-full"
+            onClick={() => setEyePrizeMode(true)}
+          >
+            👁️ Attribuer le Prix de l'œil
+          </button>
         ) : (
           <div className="info-banner banner-amber">
-            <span className="banner-icon">⏳</span>Allez dans l'onglet "Prix de
-            l'œil" pour gérer le vote.
+            <span className="banner-icon">⏳</span>Le Prix de l'œil sera annoncé
+            prochainement.
           </div>
         )}
       </div>
@@ -1819,7 +1917,7 @@ function AuditTab() {
                   </td>
                   <td>
                     <span
-                      className={`badge badge-ink`}
+                      className="badge badge-ink"
                       style={{ fontSize: ".68rem" }}
                     >
                       {log.action}
@@ -1967,7 +2065,6 @@ function EyePrizeManagement({ showFlash }) {
         </div>
       </div>
 
-      {/* Classement actuel */}
       {data.photoVotes.length > 0 && (
         <div style={{ marginBottom: "1.5rem" }}>
           <div style={{ fontWeight: 600, marginBottom: ".5rem" }}>
@@ -2050,7 +2147,6 @@ function EyePrizeManagement({ showFlash }) {
         </div>
       )}
 
-      {/* Liste des jurés */}
       <div style={{ marginBottom: "1.5rem" }}>
         <div style={{ fontWeight: 600, marginBottom: ".5rem" }}>
           👨‍⚖️ Votes par juré :
@@ -2098,7 +2194,6 @@ function EyePrizeManagement({ showFlash }) {
         </div>
       </div>
 
-      {/* Boutons d'action */}
       {!isFinalized ? (
         <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
           <button
@@ -2130,7 +2225,6 @@ function EyePrizeManagement({ showFlash }) {
         </div>
       )}
 
-      {/* Modals */}
       {showResetConfirm && (
         <div
           className="modal-backdrop"

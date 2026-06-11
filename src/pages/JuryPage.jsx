@@ -549,6 +549,7 @@ function PalmaresView({ showFlash, user }) {
   const handleVote = async (submissionId) => {
     setVoting(true);
     try {
+      // Utiliser la bonne route eye-prize/vote
       await api.post("/results/eye-prize/vote", { submissionId });
       showFlash(
         eyePrizeData?.myVote ? "✅ Vote modifié !" : "✅ Vote enregistré !",
@@ -557,6 +558,7 @@ function PalmaresView({ showFlash, user }) {
       setShowVoteModal(false);
       setSelectedPhoto(null);
     } catch (e) {
+      console.error("[handleVote] Erreur:", e);
       showFlash("❌ " + e.message);
     } finally {
       setVoting(false);
@@ -585,7 +587,6 @@ function PalmaresView({ showFlash, user }) {
   const voteCounts = eyePrizeData?.voteCounts || [];
   const finalResult = eyePrizeData?.finalResult;
   const hasTie = eyePrizeData?.hasTie;
-  const tiedPhotos = eyePrizeData?.tiedPhotos || [];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
@@ -775,7 +776,7 @@ function PalmaresView({ showFlash, user }) {
         )}
       </div>
 
-      {/* 5. PRIX DE L'ŒIL - AVEC VOTE */}
+      {/* 5. PRIX DE L'ŒIL */}
       <div className="section">
         <div className="section-header">
           <div className="section-title">
@@ -822,7 +823,6 @@ function PalmaresView({ showFlash, user }) {
           </div>
         ) : (
           <>
-            {/* Message d'égalité */}
             {hasTie && (
               <div
                 className="info-banner banner-red"
@@ -836,14 +836,13 @@ function PalmaresView({ showFlash, user }) {
                 <div>
                   <strong>Égalité détectée !</strong>
                   <p style={{ margin: "0.25rem 0 0" }}>
-                    {tiedPhotos.length} photos sont à égalité avec{" "}
-                    {tiedPhotos[0]?.votes} voix chacune.
+                    L'administrateur va départager les ex-aequo.
                   </p>
                 </div>
               </div>
             )}
 
-            {/* Résumé des votes actuels */}
+            {/* Résumé des votes */}
             {voteCounts.length > 0 && (
               <div className="panel" style={{ marginBottom: "1rem" }}>
                 <div
@@ -905,18 +904,9 @@ function PalmaresView({ showFlash, user }) {
                       <div style={{ fontWeight: 600, marginTop: ".5rem" }}>
                         {vote.anonymousId}
                       </div>
-                      <div
-                        style={{
-                          fontSize: ".7rem",
-                          color: "var(--ink-muted)",
-                          marginTop: ".25rem",
-                        }}
-                      >
-                        {vote.categoryName}
-                      </div>
                       <span
                         className="badge badge-amber"
-                        style={{ marginTop: ".5rem" }}
+                        style={{ marginTop: ".25rem" }}
                       >
                         {vote.votes} voix
                       </span>
@@ -926,7 +916,7 @@ function PalmaresView({ showFlash, user }) {
               </div>
             )}
 
-            {/* Message vote */}
+            {/* Message et bouton pour voter */}
             <div
               className="info-banner banner-amber"
               style={{ marginBottom: "1rem" }}
@@ -946,7 +936,6 @@ function PalmaresView({ showFlash, user }) {
               )}
             </div>
 
-            {/* BOUTON POUR VOTER - AFFICHE LA LISTE DES PHOTOS */}
             <button
               className="btn btn-primary btn-full"
               onClick={() => setShowVoteModal(true)}
@@ -956,7 +945,7 @@ function PalmaresView({ showFlash, user }) {
               {hasVoted
                 ? "🔄 Modifier mon vote"
                 : hasTie
-                  ? "⏳ Égalité en cours de résolution"
+                  ? "⏳ Égalité en cours"
                   : "🗳️ Voter pour ma photo préférée"}
             </button>
           </>
@@ -1114,10 +1103,6 @@ function PalmaresView({ showFlash, user }) {
                           gap: "1rem",
                           flexWrap: "wrap",
                           marginBottom: ".5rem",
-                          border:
-                            hasTie && vote.votes === voteCounts[0]?.votes
-                              ? "2px solid var(--amber)"
-                              : "none",
                         }}
                       >
                         {vote.photoUrl && (
@@ -1167,8 +1152,7 @@ function PalmaresView({ showFlash, user }) {
                     textAlign: "center",
                   }}
                 >
-                  ⚠️ <strong>Égalité détectée</strong> — L'administrateur va
-                  départager les photos ex-aequo.
+                  ⚠️ Égalité détectée — L'administrateur va départager.
                 </div>
               )}
             </div>
