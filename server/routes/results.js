@@ -1,4 +1,4 @@
-// backend/routes/results.js - Version complète avec gestion des égalités
+// backend/routes/results.js
 import express from "express";
 import supabase from "../utils/supabase.js";
 import { requireAuth, requireAdmin, requireJuror } from "../middleware/auth.js";
@@ -10,47 +10,26 @@ const router = express.Router();
 // FONCTION DE CALCUL DES MOYENNES
 // ════════════════════════════════════════════════════════════════
 async function computeAverages(categoryId) {
-  console.log(`[computeAverages] Catégorie ${categoryId}`);
-
   const { data: submissions, error: subError } = await supabase
     .from("submissions")
-    .select(
-      `
-      id, 
-      anonymous_id, 
-      display_order, 
-      user_id
-    `,
-    )
+    .select("id, anonymous_id, display_order, user_id")
     .eq("category_id", categoryId);
 
-  if (subError) {
-    console.error("[computeAverages] Erreur:", subError);
-    return [];
-  }
-
-  if (!submissions || submissions.length === 0) {
-    return [];
-  }
+  if (subError || !submissions?.length) return [];
 
   const results = [];
 
   for (const sub of submissions) {
-    const { data: scores, error: scoreError } = await supabase
+    const { data: scores } = await supabase
       .from("scores")
       .select("value, juror_id")
       .eq("submission_id", sub.id);
 
-    if (scoreError || !scores || scores.length === 0) {
-      continue;
-    }
+    if (!scores?.length) continue;
 
     const byJuror = {};
     scores.forEach((s) => {
-      if (!byJuror[s.juror_id]) {
-        byJuror[s.juror_id] = 0;
-      }
-      byJuror[s.juror_id] += s.value;
+      byJuror[s.juror_id] = (byJuror[s.juror_id] || 0) + s.value;
     });
 
     const jurorTotals = Object.values(byJuror);
@@ -94,7 +73,6 @@ router.get("/status", requireAuth, async (req, res) => {
       hasResults: (count || 0) > 0,
     });
   } catch (e) {
-    console.error("[status] Erreur:", e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -103,98 +81,54 @@ router.get("/status", requireAuth, async (req, res) => {
 // POST /api/results/compute
 // ════════════════════════════════════════════════════════════════
 router.post("/compute", requireAuth, requireAdmin, async (req, res) => {
-  console.log("[COMPUTE] Début du calcul des résultats");
-
   try {
-    const { data: categories, error: catError } = await supabase
+    const { data: categories } = await supabase
       .from("categories")
       .select("id, name")
       .eq("is_active", true);
 
-    if (catError) {
-      return res.status(500).json({ error: catError.message });
-    }
-
-    if (!categories || categories.length === 0) {
+    if (!categories?.length) {
       return res.status(400).json({ error: "Aucune catégorie active" });
     }
 
-    const { error: deleteError } = await supabase
+    await supabase
       .from("results")
       .delete()
       .neq("id", "00000000-0000-0000-0000-000000000000");
-
-    if (deleteError) {
-      return res.status(500).json({ error: deleteError.message });
-    }
 
     const allResults = [];
     let categoriesWithResults = 0;
 
     for (const cat of categories) {
       const ranked = await computeAverages(cat.id);
-
-      if (ranked.length === 0) {
-        continue;
-      }
+      if (ranked.length === 0) continue;
 
       categoriesWithResults++;
 
       for (let i = 0; i < ranked.length; i++) {
         const r = ranked[i];
 
-        const { data: existing } = await supabase
+        const { data: newResult } = await supabase
           .from("results")
-          .select("id")
-          .eq("category_id", cat.id)
-          .eq("submission_id", r.submissionId)
-          .maybeSingle();
+          .insert({
+            category_id: cat.id,
+            submission_id: r.submissionId,
+            rank: i + 1,
+            average_score: r.average,
+            total_score: r.totalScore,
+            is_published: false,
+            jurors_can_view: false,
+            computed_at: new Date().toISOString(),
+          })
+          .select()
+          .single();
 
-        let inserted;
-        if (existing) {
-          const { data: updated, error: updateError } = await supabase
-            .from("results")
-            .update({
-              rank: i + 1,
-              average_score: r.average,
-              total_score: r.totalScore,
-              computed_at: new Date().toISOString(),
-            })
-            .eq("id", existing.id)
-            .select()
-            .single();
-
-          if (updateError) throw updateError;
-          inserted = updated;
-        } else {
-          const { data: newResult, error: insertError } = await supabase
-            .from("results")
-            .insert({
-              category_id: cat.id,
-              submission_id: r.submissionId,
-              rank: i + 1,
-              average_score: r.average,
-              total_score: r.totalScore,
-              is_published: false,
-              jurors_can_view: false,
-              computed_at: new Date().toISOString(),
-            })
-            .select()
-            .single();
-
-          if (insertError) throw insertError;
-          inserted = newResult;
-        }
-
-        allResults.push(inserted);
+        allResults.push(newResult);
       }
     }
 
     if (allResults.length === 0) {
-      return res.status(400).json({
-        error:
-          "Aucun résultat calculé — vérifiez que des notes ont été saisies",
-      });
+      return res.status(400).json({ error: "Aucun résultat calculé" });
     }
 
     await log(req.user.id, "RESULTS_COMPUTE", "results", null, {
@@ -205,10 +139,9 @@ router.post("/compute", requireAuth, requireAdmin, async (req, res) => {
     res.json({
       computed: allResults.length,
       categories: categoriesWithResults,
-      results: allResults,
     });
   } catch (e) {
-    console.error("[COMPUTE] Exception:", e);
+    console.error("[COMPUTE]", e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -225,28 +158,17 @@ router.post(
       const { count } = await supabase
         .from("results")
         .select("*", { count: "exact", head: true });
-
       if ((count || 0) === 0) {
-        return res.status(400).json({
-          error:
-            "Aucun résultat calculé. Cliquez d'abord sur 'Calculer les résultats'.",
-        });
+        return res.status(400).json({ error: "Aucun résultat calculé" });
       }
 
-      const { error } = await supabase
+      await supabase
         .from("results")
         .update({ jurors_can_view: true })
         .neq("id", "00000000-0000-0000-0000-000000000000");
-
-      if (error) throw error;
-
       await log(req.user.id, "RESULTS_PUBLISH_TO_JURORS", "results", null);
-      res.json({
-        success: true,
-        message: "Résultats disponibles pour les jurés",
-      });
+      res.json({ success: true });
     } catch (e) {
-      console.error("[publish-to-jurors] Erreur:", e);
       res.status(500).json({ error: e.message });
     }
   },
@@ -264,15 +186,11 @@ router.post(
       const { count } = await supabase
         .from("results")
         .select("*", { count: "exact", head: true });
-
       if ((count || 0) === 0) {
-        return res.status(400).json({
-          error:
-            "Aucun résultat calculé. Cliquez d'abord sur 'Calculer les résultats'.",
-        });
+        return res.status(400).json({ error: "Aucun résultat calculé" });
       }
 
-      const { error } = await supabase
+      await supabase
         .from("results")
         .update({
           is_published: true,
@@ -281,20 +199,14 @@ router.post(
         })
         .neq("id", "00000000-0000-0000-0000-000000000000");
 
-      if (error) throw error;
-
       await log(
         req.user.id,
         "RESULTS_PUBLISH_TO_PARTICIPANTS",
         "results",
         null,
       );
-      res.json({
-        success: true,
-        message: "Résultats disponibles pour les participants",
-      });
+      res.json({ success: true });
     } catch (e) {
-      console.error("[publish-to-participants] Erreur:", e);
       res.status(500).json({ error: e.message });
     }
   },
@@ -305,23 +217,19 @@ router.post(
 // ════════════════════════════════════════════════════════════════
 router.post("/unpublish", requireAuth, requireAdmin, async (req, res) => {
   try {
-    const { error } = await supabase
+    await supabase
       .from("results")
       .update({ is_published: false, jurors_can_view: false })
       .neq("id", "00000000-0000-0000-0000-000000000000");
-
-    if (error) throw error;
-
     await log(req.user.id, "RESULTS_UNPUBLISH_ALL", "results", null);
-    res.json({ success: true, message: "Tous les résultats sont masqués" });
+    res.json({ success: true });
   } catch (e) {
-    console.error("[unpublish] Erreur:", e);
     res.status(500).json({ error: e.message });
   }
 });
 
 // ════════════════════════════════════════════════════════════════
-// GET /api/results/palmares - Version complète avec photos pour coups de cœur
+// GET /api/results/palmares - Version CORRIGÉE avec photos pour coups de cœur
 // ════════════════════════════════════════════════════════════════
 router.get("/palmares", requireAuth, async (req, res) => {
   const isAdmin = req.user.role === "admin";
@@ -334,7 +242,6 @@ router.get("/palmares", requireAuth, async (req, res) => {
       .select("is_published, jurors_can_view")
       .limit(1)
       .maybeSingle();
-
     const jurorsCanView = settings?.jurors_can_view === true;
     const isPublished = settings?.is_published === true;
 
@@ -347,42 +254,22 @@ router.get("/palmares", requireAuth, async (req, res) => {
       return res.status(403).json({ error: "Palmarès non disponible" });
     }
 
-    // Récupérer les résultats
-    const { data: results, error: resultsError } = await supabase
+    // Récupérer les résultats avec les infos utilisateur
+    const { data: results } = await supabase
       .from("results")
       .select(
         `
-        id,
-        rank,
-        average_score,
-        total_score,
-        category_id,
-        categories!results_category_id_fkey (
-          id,
-          name
-        ),
+        id, rank, average_score, total_score, category_id,
+        categories!results_category_id_fkey (id, name),
         submissions!results_submission_id_fkey (
-          id,
-          anonymous_id,
-          display_order,
-          photo_id,
-          photos!submissions_photo_id_fkey (
-            storage_path
-          ),
-          users!submissions_user_id_fkey (
-            first_name,
-            last_name
-          )
+          id, anonymous_id, display_order, photo_id,
+          photos!submissions_photo_id_fkey (storage_path),
+          users!submissions_user_id_fkey (first_name, last_name)
         )
       `,
       )
       .order("category_id")
       .order("rank");
-
-    if (resultsError) {
-      console.error("[palmares] Erreur:", resultsError);
-      return res.status(500).json({ error: resultsError.message });
-    }
 
     // Ajouter les URLs signées
     const resultsWithUrls = await Promise.all(
@@ -397,79 +284,45 @@ router.get("/palmares", requireAuth, async (req, res) => {
             photoUrl = signed?.signedUrl;
           } catch (err) {}
         }
-
-        const author = r.submissions?.users
-          ? `${r.submissions.users.first_name} ${r.submissions.users.last_name}`
-          : null;
-
         return {
           ...r,
-          author,
-          submissions: {
-            ...r.submissions,
-            photoUrl,
-          },
+          author: r.submissions?.users
+            ? `${r.submissions.users.first_name} ${r.submissions.users.last_name}`
+            : null,
+          submissions: { ...r.submissions, photoUrl },
         };
       }),
     );
 
-    // Classement général
+    // Classement général par photographe
     const userScores = {};
-    (resultsWithUrls || []).forEach((r) => {
+    resultsWithUrls.forEach((r) => {
       const author = r.author;
       if (!author) return;
-
-      if (!userScores[author]) {
-        userScores[author] = {
-          name: author,
-          total: 0,
-          finalists: 0,
-        };
-      }
+      if (!userScores[author])
+        userScores[author] = { name: author, total: 0, finalists: 0 };
       userScores[author].total += r.average_score || 0;
       if (r.rank === 1) userScores[author].finalists++;
     });
-
     const generalRanking = Object.values(userScores).sort(
       (a, b) => b.total - a.total,
     );
     const bestPhotographer = generalRanking[0] || null;
 
     // ════════════════════════════════════════════════════════════════
-    // COUPS DE CŒUR - AVEC PHOTOS COMPLÈTES
+    // COUPS DE CŒUR - AVEC PHOTOS ET NOMS DES PHOTOGRAPHES
     // ════════════════════════════════════════════════════════════════
-    const { data: favorites, error: favError } = await supabase.from(
-      "favorites",
-    ).select(`
-        id,
-        submission_id,
-        category_id,
-        created_at,
+    const { data: favorites } = await supabase.from("favorites").select(`
+        id, submission_id, category_id, created_at,
         submissions!favorites_submission_id_fkey (
-          id,
-          anonymous_id,
-          display_order,
-          users!submissions_user_id_fkey (
-            id,
-            first_name,
-            last_name
-          ),
-          categories!submissions_category_id_fkey (
-            id,
-            name
-          ),
-          photos!submissions_photo_id_fkey (
-            storage_path,
-            filename
-          )
+          id, anonymous_id,
+          users!submissions_user_id_fkey (id, first_name, last_name),
+          categories!submissions_category_id_fkey (id, name),
+          photos!submissions_photo_id_fkey (storage_path)
         )
       `);
 
-    if (favError) {
-      console.error("[palmares] Erreur favorites:", favError);
-    }
-
-    // Construire la liste des coups de cœur avec photos et noms
+    // Construire la liste des coups de cœur avec photos
     const favoriteItems = await Promise.all(
       (favorites || []).map(async (fav) => {
         let photoUrl = null;
@@ -482,11 +335,9 @@ router.get("/palmares", requireAuth, async (req, res) => {
             photoUrl = signed?.signedUrl;
           } catch (err) {}
         }
-
         return {
           id: fav.id,
           submissionId: fav.submission_id,
-          categoryId: fav.category_id,
           categoryName: fav.submissions?.categories?.name,
           anonymousId: fav.submissions?.anonymous_id,
           author: fav.submissions?.users
@@ -510,105 +361,71 @@ router.get("/palmares", requireAuth, async (req, res) => {
           photoUrl: item.photoUrl,
           categoryName: item.categoryName,
           count: 0,
-          favorites: [],
         });
       }
-      const entry = favoriteCountsMap.get(key);
-      entry.count++;
-      entry.favorites.push({
-        jurorName: null, // On garde l'anonymat du jury
-        votedAt: item.createdAt,
-      });
+      favoriteCountsMap.get(key).count++;
     });
 
     const favoriteCounts = Array.from(favoriteCountsMap.values()).sort(
       (a, b) => b.count - a.count,
     );
 
-    const topFavorite = favoriteCounts.length > 0 ? favoriteCounts[0] : null;
-
     // ════════════════════════════════════════════════════════════════
-    // PRIX DE L'ŒIL - AVEC GESTION DES ÉGALITÉS
+    // PRIX DE L'ŒIL - Chaque juré vote parmi TOUTES les photos
     // ════════════════════════════════════════════════════════════════
 
-    // Récupérer l'état du vote (en cours ou finalisé)
-    const { data: tieState } = await supabase
-      .from("eye_prize_state")
-      .select("*")
-      .limit(1)
-      .maybeSingle();
-
-    // Récupérer tous les votes
-    const { data: votes, error: votesError } = await supabase.from(
-      "eye_prize_votes",
-    ).select(`
-        id,
-        juror_id,
-        submission_id,
-        voted_at,
-        submissions!eye_prize_votes_submission_id_fkey (
-          id,
-          anonymous_id,
-          users!submissions_user_id_fkey (
-            first_name,
-            last_name
-          ),
-          categories!submissions_category_id_fkey (
-            name
-          ),
-          photos!submissions_photo_id_fkey (
-            storage_path
-          )
-        )
+    // Récupérer TOUTES les soumissions (toutes catégories confondues)
+    const { data: allSubmissions } = await supabase.from("submissions").select(`
+        id, anonymous_id, category_id,
+        categories!submissions_category_id_fkey (name),
+        photos!submissions_photo_id_fkey (storage_path),
+        users!submissions_user_id_fkey (first_name, last_name)
       `);
 
-    if (votesError) {
-      console.error("[palmares] Erreur votes:", votesError);
-    }
-
-    // Ajouter les URLs aux votes
-    const votesWithUrls = await Promise.all(
-      (votes || []).map(async (vote) => {
+    const submissionsWithUrls = await Promise.all(
+      (allSubmissions || []).map(async (sub) => {
         let photoUrl = null;
-        const storagePath = vote.submissions?.photos?.storage_path;
-        if (storagePath) {
+        if (sub.photos?.storage_path) {
           try {
             const { data: signed } = await supabase.storage
               .from("photos")
-              .createSignedUrl(storagePath, 3600);
+              .createSignedUrl(sub.photos.storage_path, 3600);
             photoUrl = signed?.signedUrl;
           } catch (err) {}
         }
         return {
-          ...vote,
-          submissions: {
-            ...vote.submissions,
-            photoUrl,
-          },
+          id: sub.id,
+          anonymous_id: sub.anonymous_id,
+          categoryName: sub.categories?.name,
+          photoUrl: photoUrl,
+          author: sub.users
+            ? `${sub.users.first_name} ${sub.users.last_name}`
+            : null,
         };
       }),
     );
 
-    // Compter les votes par photo
+    // Récupérer les votes du Prix de l'œil
+    const { data: eyePrizeVotes } = await supabase
+      .from("eye_prize_votes")
+      .select("id, juror_id, submission_id, voted_at");
+
+    // Compter les votes
     const voteCountsMap = new Map();
-    votesWithUrls.forEach((vote) => {
+    (eyePrizeVotes || []).forEach((vote) => {
       const key = vote.submission_id;
       if (!voteCountsMap.has(key)) {
+        const submission = submissionsWithUrls.find((s) => s.id === key);
         voteCountsMap.set(key, {
-          submissionId: vote.submission_id,
-          anonymousId: vote.submissions?.anonymous_id,
-          author: vote.submissions?.users
-            ? `${vote.submissions.users.first_name} ${vote.submissions.users.last_name}`
-            : null,
-          photoUrl: vote.submissions?.photoUrl,
-          categoryName: vote.submissions?.categories?.name,
+          submissionId: key,
+          anonymousId: submission?.anonymous_id,
+          author: submission?.author,
+          photoUrl: submission?.photoUrl,
+          categoryName: submission?.categoryName,
           votes: 0,
-          jurorIds: [],
         });
       }
-      const entry = voteCountsMap.get(key);
-      entry.votes++;
-      entry.jurorIds.push(vote.juror_id);
+      voteCountsMap.get(key).votes++;
     });
 
     const voteCounts = Array.from(voteCountsMap.values()).sort(
@@ -618,7 +435,11 @@ router.get("/palmares", requireAuth, async (req, res) => {
     // Vérifier s'il y a une égalité
     let hasTie = false;
     let tiedPhotos = [];
-    if (voteCounts.length >= 2 && voteCounts[0].votes === voteCounts[1].votes) {
+    if (
+      voteCounts.length >= 2 &&
+      voteCounts[0]?.votes === voteCounts[1]?.votes &&
+      voteCounts[0]?.votes > 0
+    ) {
       hasTie = true;
       const topVoteCount = voteCounts[0].votes;
       tiedPhotos = voteCounts.filter((v) => v.votes === topVoteCount);
@@ -629,24 +450,12 @@ router.get("/palmares", requireAuth, async (req, res) => {
       .from("eye_prize_result")
       .select(
         `
-        id,
-        total_votes,
-        is_finalized,
-        finalized_at,
-        finalized_by,
+        id, total_votes, is_finalized, finalized_at, finalized_by,
         submissions!eye_prize_result_submission_id_fkey (
-          id,
-          anonymous_id,
-          users!submissions_user_id_fkey (
-            first_name,
-            last_name
-          ),
-          categories!submissions_category_id_fkey (
-            name
-          ),
-          photos!submissions_photo_id_fkey (
-            storage_path
-          )
+          id, anonymous_id,
+          users!submissions_user_id_fkey (first_name, last_name),
+          categories!submissions_category_id_fkey (name),
+          photos!submissions_photo_id_fkey (storage_path)
         )
       `,
       )
@@ -669,38 +478,55 @@ router.get("/palmares", requireAuth, async (req, res) => {
       } catch (err) {
         finalResultWithUrl = finalResult;
       }
-    } else {
-      finalResultWithUrl = finalResult;
     }
 
     // Mon vote
-    const myVote = votesWithUrls?.find((v) => v.juror_id === req.user.id);
+    const myVote = eyePrizeVotes?.find((v) => v.juror_id === req.user.id);
+    const myVoteDetails = myVote
+      ? submissionsWithUrls.find((s) => s.id === myVote.submission_id)
+      : null;
 
-    // Toutes les soumissions pour le modal de vote
-    const { data: allSubmissions } = await supabase
-      .from("submissions")
-      .select(
-        `
-        id,
-        anonymous_id,
-        display_order,
-        category_id,
-        categories!submissions_category_id_fkey (
-          name
-        ),
-        photos!submissions_photo_id_fkey (
-          storage_path
-        ),
-        users!submissions_user_id_fkey (
-          first_name,
-          last_name
-        )
-      `,
-      )
-      .order("created_at");
+    res.json({
+      byCategory: resultsWithUrls || [],
+      favoriteCounts: favoriteCounts,
+      bestPhotographer: bestPhotographer,
+      generalRanking: generalRanking,
+      allSubmissions: submissionsWithUrls || [],
+      eyePrize: finalResultWithUrl,
+      eyePrizeVotes: voteCounts,
+      eyePrizeHasTie: hasTie,
+      eyePrizeTiedPhotos: tiedPhotos,
+      myEyePrizeVote: myVoteDetails
+        ? { submission_id: myVote.submission_id, ...myVoteDetails }
+        : null,
+      jurorsCanView,
+      isPublished,
+    });
+  } catch (e) {
+    console.error("[palmares] Erreur:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ════════════════════════════════════════════════════════════════
+// PRIX DE L'ŒIL - ROUTES
+// ════════════════════════════════════════════════════════════════
+
+// GET /api/results/eye-prize/votes
+router.get("/eye-prize/votes", requireAuth, requireJuror, async (req, res) => {
+  try {
+    const { data: votes } = await supabase.from("eye_prize_votes").select("*");
+
+    // Récupérer toutes les soumissions pour les détails
+    const { data: submissions } = await supabase.from("submissions").select(`
+        id, anonymous_id,
+        users!submissions_user_id_fkey (first_name, last_name),
+        categories!submissions_category_id_fkey (name),
+        photos!submissions_photo_id_fkey (storage_path)
+      `);
 
     const submissionsWithUrls = await Promise.all(
-      (allSubmissions || []).map(async (sub) => {
+      (submissions || []).map(async (sub) => {
         let photoUrl = null;
         if (sub.photos?.storage_path) {
           try {
@@ -712,157 +538,54 @@ router.get("/palmares", requireAuth, async (req, res) => {
         }
         return {
           id: sub.id,
-          anonymous_id: sub.anonymous_id,
-          display_order: sub.display_order,
-          category_id: sub.category_id,
-          categoryName: sub.categories?.name,
-          photoUrl: photoUrl,
+          anonymousId: sub.anonymous_id,
           author: sub.users
             ? `${sub.users.first_name} ${sub.users.last_name}`
             : null,
-        };
-      }),
-    );
-
-    res.json({
-      byCategory: resultsWithUrls || [],
-      favoriteCounts: favoriteCounts,
-      topFavorite: topFavorite,
-      bestPhotographer: bestPhotographer,
-      generalRanking: generalRanking,
-      allSubmissions: submissionsWithUrls || [],
-      eyePrize: finalResultWithUrl,
-      eyePrizeVotes: voteCounts,
-      eyePrizeHasTie: hasTie,
-      eyePrizeTiedPhotos: tiedPhotos,
-      eyePrizeState: tieState,
-      myEyePrizeVote: myVote || null,
-      jurorsCanView,
-      isPublished,
-    });
-  } catch (e) {
-    console.error("[palmares] Erreur:", e);
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// ════════════════════════════════════════════════════════════════
-// PRIX DE L'ŒIL - ROUTES AVEC GESTION DES ÉGALITÉS
-// ════════════════════════════════════════════════════════════════
-
-// GET /api/results/eye-prize/votes
-router.get("/eye-prize/votes", requireAuth, requireJuror, async (req, res) => {
-  try {
-    const { data: votes, error: votesError } = await supabase.from(
-      "eye_prize_votes",
-    ).select(`
-        id,
-        juror_id,
-        submission_id,
-        voted_at,
-        submissions!eye_prize_votes_submission_id_fkey (
-          id,
-          anonymous_id,
-          users!submissions_user_id_fkey (
-            first_name,
-            last_name
-          ),
-          categories!submissions_category_id_fkey (
-            name
-          ),
-          photos!submissions_photo_id_fkey (
-            storage_path
-          )
-        )
-      `);
-
-    if (votesError) throw votesError;
-
-    const votesWithUrls = await Promise.all(
-      (votes || []).map(async (vote) => {
-        let photoUrl = null;
-        const storagePath = vote.submissions?.photos?.storage_path;
-        if (storagePath) {
-          try {
-            const { data: signed } = await supabase.storage
-              .from("photos")
-              .createSignedUrl(storagePath, 3600);
-            photoUrl = signed?.signedUrl;
-          } catch (err) {}
-        }
-        return {
-          ...vote,
-          submissions: {
-            ...vote.submissions,
-            photoUrl,
-          },
+          categoryName: sub.categories?.name,
+          photoUrl: photoUrl,
         };
       }),
     );
 
     const voteCounts = {};
-    votesWithUrls.forEach((vote) => {
+    (votes || []).forEach((vote) => {
+      const sub = submissionsWithUrls.find((s) => s.id === vote.submission_id);
       const key = vote.submission_id;
       if (!voteCounts[key]) {
         voteCounts[key] = {
           submissionId: vote.submission_id,
-          anonymousId: vote.submissions?.anonymous_id,
-          author: vote.submissions?.users
-            ? `${vote.submissions.users.first_name} ${vote.submissions.users.last_name}`
-            : null,
-          photoUrl: vote.submissions?.photoUrl,
+          anonymousId: sub?.anonymousId,
+          author: sub?.author,
+          photoUrl: sub?.photoUrl,
           votes: 0,
         };
       }
       voteCounts[key].votes++;
     });
 
-    const myVote = votesWithUrls?.find((v) => v.juror_id === req.user.id);
+    const myVote = votes?.find((v) => v.juror_id === req.user.id);
+    const myVoteDetails = myVote
+      ? submissionsWithUrls.find((s) => s.id === myVote.submission_id)
+      : null;
 
     const { data: finalResult } = await supabase
       .from("eye_prize_result")
-      .select(
-        `
-        *,
-        submissions!eye_prize_result_submission_id_fkey (
-          id,
-          anonymous_id,
-          users!submissions_user_id_fkey (
-            first_name,
-            last_name
-          ),
-          categories!submissions_category_id_fkey (
-            name
-          ),
-          photos!submissions_photo_id_fkey (
-            storage_path
-          )
-        )
-      `,
-      )
+      .select("*")
       .eq("is_finalized", true)
       .maybeSingle();
 
-    const { data: tieState } = await supabase
-      .from("eye_prize_state")
-      .select("*")
-      .limit(1)
-      .maybeSingle();
-
-    const { data: allJurors } = await supabase
-      .from("users")
-      .select("id")
-      .in("role_id", [2, 3]);
-
     res.json({
       voteCounts: Object.values(voteCounts),
-      myVote: myVote || null,
+      myVote: myVoteDetails
+        ? { submission_id: myVote.submission_id, ...myVoteDetails }
+        : null,
       finalResult,
-      tieState,
-      totalJurors: allJurors?.length || 0,
+      totalJurors:
+        (await supabase.from("users").select("id").in("role_id", [2, 3])).data
+          ?.length || 0,
     });
   } catch (e) {
-    console.error("[eye-prize/votes] Erreur:", e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -874,13 +597,11 @@ router.post("/eye-prize/vote", requireAuth, requireJuror, async (req, res) => {
     return res.status(400).json({ error: "submissionId requis" });
 
   try {
-    // Vérifier si le vote est déjà finalisé
     const { data: existingResult } = await supabase
       .from("eye_prize_result")
       .select("is_finalized")
       .eq("is_finalized", true)
       .maybeSingle();
-
     if (existingResult) {
       return res
         .status(403)
@@ -889,10 +610,9 @@ router.post("/eye-prize/vote", requireAuth, requireJuror, async (req, res) => {
 
     const { data: submission } = await supabase
       .from("submissions")
-      .select("id, anonymous_id, category_id")
+      .select("id, category_id")
       .eq("id", submissionId)
       .single();
-
     if (!submission)
       return res.status(404).json({ error: "Photo introuvable" });
 
@@ -912,61 +632,36 @@ router.post("/eye-prize/vote", requireAuth, requireJuror, async (req, res) => {
         })
         .eq("id", existingVote.id);
     } else {
-      await supabase.from("eye_prize_votes").insert({
-        juror_id: req.user.id,
-        submission_id: submissionId,
-        category_id: submission.category_id,
-        voted_at: new Date().toISOString(),
-      });
+      await supabase
+        .from("eye_prize_votes")
+        .insert({
+          juror_id: req.user.id,
+          submission_id: submissionId,
+          category_id: submission.category_id,
+          voted_at: new Date().toISOString(),
+        });
     }
-
-    // Mettre à jour le compteur
-    await updateEyePrizeCounts();
 
     res.json({ success: true, message: "Vote enregistré !" });
   } catch (e) {
-    console.error("[eye-prize/vote] Erreur:", e);
     res.status(500).json({ error: e.message });
   }
 });
 
-// Fonction pour mettre à jour les compteurs
-async function updateEyePrizeCounts() {
-  const { data: votes } = await supabase
-    .from("eye_prize_votes")
-    .select("submission_id");
-
-  const counts = {};
-  (votes || []).forEach((v) => {
-    counts[v.submission_id] = (counts[v.submission_id] || 0) + 1;
-  });
-
-  for (const [subId, count] of Object.entries(counts)) {
-    await supabase.from("eye_prize_result").upsert({
-      submission_id: subId,
-      total_votes: count,
-      is_finalized: false,
-    });
-  }
-}
-
-// POST /api/results/eye-prize/resolve-tie - Pour résoudre une égalité
+// POST /api/results/eye-prize/resolve-tie
 router.post(
   "/eye-prize/resolve-tie",
   requireAuth,
   requireAdmin,
   async (req, res) => {
     const { winningSubmissionId } = req.body;
-    if (!winningSubmissionId) {
+    if (!winningSubmissionId)
       return res.status(400).json({ error: "winningSubmissionId requis" });
-    }
 
     try {
-      // Récupérer les votes actuels
       const { data: votes } = await supabase
         .from("eye_prize_votes")
         .select("submission_id");
-
       const counts = {};
       (votes || []).forEach((v) => {
         counts[v.submission_id] = (counts[v.submission_id] || 0) + 1;
@@ -974,7 +669,7 @@ router.post(
 
       const maxVotes = Math.max(...Object.values(counts));
       const tiedSubmissions = Object.entries(counts)
-        .filter(([, count]) => count === maxVotes)
+        .filter(([, c]) => c === maxVotes)
         .map(([id]) => id);
 
       if (!tiedSubmissions.includes(winningSubmissionId)) {
@@ -983,154 +678,70 @@ router.post(
           .json({ error: "Cette photo n'est pas parmi les ex-aequo" });
       }
 
-      // Finaliser avec le choix de l'admin
       await supabase
         .from("eye_prize_result")
         .delete()
         .neq("id", "00000000-0000-0000-0000-000000000000");
-
-      const { data: result } = await supabase
-        .from("eye_prize_result")
-        .insert({
-          submission_id: winningSubmissionId,
-          total_votes: counts[winningSubmissionId],
-          is_finalized: true,
-          finalized_at: new Date().toISOString(),
-          finalized_by: req.user.id,
-        })
-        .select()
-        .single();
-
-      // Enregistrer l'état de l'égalité résolue
-      await supabase.from("eye_prize_state").upsert({
-        id: 1,
-        has_tie: false,
-        resolved_at: new Date().toISOString(),
-        resolved_by: req.user.id,
-        winning_submission_id: winningSubmissionId,
+      await supabase.from("eye_prize_result").insert({
+        submission_id: winningSubmissionId,
+        total_votes: counts[winningSubmissionId],
+        is_finalized: true,
+        finalized_at: new Date().toISOString(),
+        finalized_by: req.user.id,
       });
 
-      await log(
-        req.user.id,
-        "EYE_PRIZE_TIE_RESOLVED",
-        "eye_prize_result",
-        winningSubmissionId,
-        {
-          tieBroken: true,
-          finalChoice: winningSubmissionId,
-        },
-      );
-
-      res.json({
-        success: true,
-        message: "Égalité résolue - Prix de l'œil finalisé !",
-      });
+      res.json({ success: true, message: "Prix de l'œil finalisé !" });
     } catch (e) {
-      console.error("[eye-prize/resolve-tie] Erreur:", e);
       res.status(500).json({ error: e.message });
     }
   },
 );
 
-// POST /api/results/eye-prize/finalize - Finalisation normale (sans égalité)
+// POST /api/results/eye-prize/finalize
 router.post(
   "/eye-prize/finalize",
   requireAuth,
   requireAdmin,
   async (req, res) => {
     const { submissionId } = req.body;
-    if (!submissionId) {
-      // Si pas de submissionId, prendre le gagnant automatique
-      try {
-        const { data: votes } = await supabase
-          .from("eye_prize_votes")
-          .select("submission_id");
 
-        const counts = {};
-        (votes || []).forEach((v) => {
-          counts[v.submission_id] = (counts[v.submission_id] || 0) + 1;
-        });
+    try {
+      const { data: votes } = await supabase
+        .from("eye_prize_votes")
+        .select("submission_id");
+      const counts = {};
+      (votes || []).forEach((v) => {
+        counts[v.submission_id] = (counts[v.submission_id] || 0) + 1;
+      });
 
-        let maxVotes = 0;
-        let winner = null;
+      let winner = submissionId;
+      let maxVotes = 0;
+
+      if (!winner) {
         for (const [id, count] of Object.entries(counts)) {
           if (count > maxVotes) {
             maxVotes = count;
             winner = id;
           }
         }
-
-        if (!winner) {
+        if (!winner)
           return res.status(400).json({ error: "Aucun vote enregistré" });
-        }
-
-        await supabase
-          .from("eye_prize_result")
-          .delete()
-          .neq("id", "00000000-0000-0000-0000-000000000000");
-
-        const { data: result } = await supabase
-          .from("eye_prize_result")
-          .insert({
-            submission_id: winner,
-            total_votes: maxVotes,
-            is_finalized: true,
-            finalized_at: new Date().toISOString(),
-            finalized_by: req.user.id,
-          })
-          .select()
-          .single();
-
-        await supabase.from("eye_prize_state").upsert({
-          id: 1,
-          has_tie: false,
-          resolved_at: new Date().toISOString(),
-          resolved_by: req.user.id,
-          winning_submission_id: winner,
-        });
-
-        res.json({ success: true, message: "Prix de l'œil finalisé !" });
-      } catch (e) {
-        console.error("[eye-prize/finalize] Erreur:", e);
-        res.status(500).json({ error: e.message });
       }
-      return;
-    }
 
-    try {
       await supabase
         .from("eye_prize_result")
         .delete()
         .neq("id", "00000000-0000-0000-0000-000000000000");
-
-      const { data: result } = await supabase
-        .from("eye_prize_result")
-        .insert({
-          submission_id: submissionId,
-          is_finalized: true,
-          finalized_at: new Date().toISOString(),
-          finalized_by: req.user.id,
-        })
-        .select()
-        .single();
-
-      await supabase.from("eye_prize_state").upsert({
-        id: 1,
-        has_tie: false,
-        resolved_at: new Date().toISOString(),
-        resolved_by: req.user.id,
-        winning_submission_id: submissionId,
+      await supabase.from("eye_prize_result").insert({
+        submission_id: winner,
+        total_votes: counts[winner] || 0,
+        is_finalized: true,
+        finalized_at: new Date().toISOString(),
+        finalized_by: req.user.id,
       });
 
-      await log(
-        req.user.id,
-        "EYE_PRIZE_FINALIZED",
-        "eye_prize_result",
-        submissionId,
-      );
       res.json({ success: true, message: "Prix de l'œil finalisé !" });
     } catch (e) {
-      console.error("[eye-prize/finalize] Erreur:", e);
       res.status(500).json({ error: e.message });
     }
   },
@@ -1147,14 +758,8 @@ router.post("/eye-prize/reset", requireAuth, requireAdmin, async (req, res) => {
       .from("eye_prize_result")
       .delete()
       .neq("id", "00000000-0000-0000-0000-000000000000");
-    await supabase
-      .from("eye_prize_state")
-      .delete()
-      .neq("id", "00000000-0000-0000-0000-000000000000");
-
     res.json({ success: true, message: "Votes réinitialisés" });
   } catch (e) {
-    console.error("[eye-prize/reset] Erreur:", e);
     res.status(500).json({ error: e.message });
   }
 });
