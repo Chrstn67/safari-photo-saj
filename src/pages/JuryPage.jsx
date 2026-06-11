@@ -554,26 +554,27 @@ export default function JuryPage() {
   );
 }
 
-/* ── Composant Palmarès complet corrigé ── */
 function PalmaresView({ showFlash, user }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showVoteModal, setShowVoteModal] = useState(false);
   const [showResultsModal, setShowResultsModal] = useState(false);
+  const [showTieModal, setShowTieModal] = useState(false);
   const [selectedPhoto, setSelectedPhoto] = useState(null);
   const [voting, setVoting] = useState(false);
-  const [eyePrizeData, setEyePrizeData] = useState(null);
+  const [tieBreakerVotes, setTieBreakerVotes] = useState({});
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [palmaresResult, votesResult] = await Promise.all([
-        api.get("/results/palmares"),
-        api.get("/results/eye-prize/votes").catch(() => null),
-      ]);
-      console.log("[PalmaresView] Données reçues:", palmaresResult);
-      setData(palmaresResult);
-      setEyePrizeData(votesResult);
+      const result = await api.get("/results/palmares");
+      console.log("[PalmaresView] Données reçues:", result);
+      setData(result);
+
+      // Vérifier s'il y a une égalité pour le prix de l'œil
+      if (result.eyePrize?.isTieForFirst && !result.eyePrize?.isFinalized) {
+        setShowTieModal(true);
+      }
     } catch (e) {
       console.error("[PalmaresView] Erreur:", e);
       showFlash?.(e.message);
@@ -601,6 +602,20 @@ function PalmaresView({ showFlash, user }) {
     }
   };
 
+  const handleTieBreakerVote = async (submissionId) => {
+    setVoting(true);
+    try {
+      await api.post("/results/eye-prize/vote", { submissionId });
+      showFlash("✅ Vote d'égalité enregistré !");
+      await loadData();
+      setShowTieModal(false);
+    } catch (e) {
+      showFlash("❌ " + e.message);
+    } finally {
+      setVoting(false);
+    }
+  };
+
   if (loading) {
     return (
       <div style={{ textAlign: "center", padding: "3rem" }}>
@@ -620,9 +635,10 @@ function PalmaresView({ showFlash, user }) {
   }
 
   const isJuror = user?.role === "juror" || user?.role === "admin";
-  const hasVoted = eyePrizeData?.myVote !== null;
-  const voteCounts = eyePrizeData?.voteCounts || [];
-  const finalResult = eyePrizeData?.finalResult;
+  const hasVoted = data.eyePrize?.myVote !== null;
+  const eyeVotes = data.eyePrize?.votes || [];
+  const isTie = data.eyePrize?.isTieForFirst === true;
+  const tiedPhotos = data.eyePrize?.tiedPhotos || [];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
@@ -679,7 +695,10 @@ function PalmaresView({ showFlash, user }) {
                 alignItems: "center",
                 gap: "1rem",
                 padding: ".75rem 1rem",
-                borderBottom: "1px solid var(--sand-border)",
+                borderBottom:
+                  i < data.generalRanking.length - 1
+                    ? "1px solid var(--sand-border)"
+                    : "none",
               }}
             >
               <span
@@ -696,7 +715,7 @@ function PalmaresView({ showFlash, user }) {
         </div>
       </div>
 
-      {/* 3. Prix par catégorie - AVEC NOM DU LAURÉAT */}
+      {/* 3. Prix par catégorie */}
       <div className="section">
         <div className="section-header">
           <div className="section-title">🏅 Prix par catégorie</div>
@@ -749,31 +768,72 @@ function PalmaresView({ showFlash, user }) {
         </div>
       </div>
 
-      {/* 4. Coup de cœur du jury - AVEC IMAGES */}
+      {/* 4. Coups de cœur du jury - AVEC PHOTOS ET NOMS */}
       <div className="section">
         <div className="section-header">
-          <div className="section-title">❤️ Coup de cœur du jury</div>
+          <div className="section-title">❤️ Coups de cœur du jury</div>
         </div>
-        {data.topFavorite ? (
-          <div className="card" style={{ textAlign: "center" }}>
-            <div style={{ fontSize: "2.5rem", marginBottom: ".5rem" }}>❤️</div>
-            <div
-              style={{
-                fontFamily: "'DM Serif Display', serif",
-                fontSize: "1.2rem",
-                color: "var(--red)",
-              }}
-            >
-              {data.topFavorite.anonymousId}
-            </div>
-            <div style={{ fontSize: ".8rem", color: "var(--ink-muted)" }}>
-              {data.topFavorite.author && `par ${data.topFavorite.author}`}
-              {data.topFavorite.categoryName &&
-                ` · ${data.topFavorite.categoryName}`}
-            </div>
-            <div className="badge badge-amber" style={{ marginTop: ".5rem" }}>
-              {data.topFavorite.totalFavorites} coup(s) de cœur
-            </div>
+        {data.favorites && data.favorites.length > 0 ? (
+          <div
+            className="photo-grid"
+            style={{
+              gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+            }}
+          >
+            {data.favorites.map((fav, idx) => (
+              <div key={idx} className="card" style={{ padding: "1rem" }}>
+                {fav.photoUrl ? (
+                  <img
+                    src={fav.photoUrl}
+                    alt=""
+                    style={{
+                      width: "100%",
+                      height: "180px",
+                      objectFit: "cover",
+                      borderRadius: "8px",
+                      marginBottom: ".75rem",
+                    }}
+                  />
+                ) : (
+                  <div
+                    style={{
+                      width: "100%",
+                      height: "180px",
+                      background: "var(--sand-dark)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      borderRadius: "8px",
+                      marginBottom: ".75rem",
+                      fontSize: "3rem",
+                    }}
+                  >
+                    📷
+                  </div>
+                )}
+                <div style={{ fontWeight: 700, fontSize: ".9rem" }}>
+                  {fav.participantName}
+                </div>
+                <div style={{ fontSize: ".75rem", color: "var(--ink-muted)" }}>
+                  {fav.anonymousId}
+                </div>
+                <div
+                  style={{
+                    fontSize: ".7rem",
+                    color: "var(--ink-faint)",
+                    marginTop: ".25rem",
+                  }}
+                >
+                  Catégorie : {fav.categoryName}
+                </div>
+                <div
+                  className="badge badge-amber"
+                  style={{ marginTop: ".5rem", display: "inline-block" }}
+                >
+                  ❤️ {fav.count} coup(s) de cœur
+                </div>
+              </div>
+            ))}
           </div>
         ) : (
           <div className="info-banner banner-amber">
@@ -783,7 +843,7 @@ function PalmaresView({ showFlash, user }) {
         )}
       </div>
 
-      {/* 5. Prix de l'œil - AVEC VOTE ET IMAGES */}
+      {/* 5. Prix de l'œil */}
       <div className="section">
         <div className="section-header">
           <div className="section-title">
@@ -791,11 +851,11 @@ function PalmaresView({ showFlash, user }) {
           </div>
         </div>
 
-        {finalResult ? (
+        {data.eyePrize?.isFinalized ? (
           <div className="card" style={{ textAlign: "center" }}>
-            {finalResult.submissions?.photoUrl && (
+            {data.eyePrize.finalResult?.submissions?.photoUrl && (
               <img
-                src={finalResult.submissions.photoUrl}
+                src={data.eyePrize.finalResult.submissions.photoUrl}
                 alt="Photo gagnante"
                 style={{
                   width: "100%",
@@ -816,22 +876,22 @@ function PalmaresView({ showFlash, user }) {
                 color: "var(--amber)",
               }}
             >
-              {finalResult.submissions?.anonymous_id}
+              {data.eyePrize.finalResult?.submissions?.anonymous_id}
             </div>
             <div style={{ fontSize: ".8rem", color: "var(--ink-muted)" }}>
-              {finalResult.submissions?.users &&
-                `par ${finalResult.submissions.users.first_name} ${finalResult.submissions.users.last_name}`}
-              {finalResult.submissions?.categories?.name &&
-                ` · ${finalResult.submissions.categories.name}`}
+              {data.eyePrize.finalResult?.submissions?.users &&
+                `par ${data.eyePrize.finalResult.submissions.users.first_name} ${data.eyePrize.finalResult.submissions.users.last_name}`}
+              {data.eyePrize.finalResult?.submissions?.categories?.name &&
+                ` · ${data.eyePrize.finalResult.submissions.categories.name}`}
             </div>
             <div className="badge badge-amber" style={{ marginTop: ".5rem" }}>
-              {finalResult.total_votes} vote(s)
+              {data.eyePrize.finalResult?.total_votes || 0} vote(s)
             </div>
           </div>
         ) : (
           <>
-            {/* Résumé des votes en cours */}
-            {voteCounts.length > 0 && (
+            {/* Résumé des votes en cours avec photos */}
+            {eyeVotes.length > 0 && (
               <div className="panel" style={{ marginBottom: "1rem" }}>
                 <div
                   className="section-header"
@@ -854,10 +914,10 @@ function PalmaresView({ showFlash, user }) {
                   style={{
                     padding: "0.75rem",
                     gridTemplateColumns:
-                      "repeat(auto-fill, minmax(150px, 1fr))",
+                      "repeat(auto-fill, minmax(160px, 1fr))",
                   }}
                 >
-                  {voteCounts.slice(0, 3).map((vote, idx) => (
+                  {eyeVotes.slice(0, 3).map((vote, idx) => (
                     <div
                       key={idx}
                       className="card"
@@ -884,6 +944,7 @@ function PalmaresView({ showFlash, user }) {
                             alignItems: "center",
                             justifyContent: "center",
                             borderRadius: "6px",
+                            fontSize: "2rem",
                           }}
                         >
                           📷
@@ -896,17 +957,40 @@ function PalmaresView({ showFlash, user }) {
                           marginTop: ".25rem",
                         }}
                       >
+                        {vote.participantName}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: ".65rem",
+                          color: "var(--ink-muted)",
+                        }}
+                      >
                         {vote.anonymousId}
                       </div>
                       <span
                         className="badge badge-amber"
-                        style={{ fontSize: ".65rem" }}
+                        style={{ fontSize: ".65rem", marginTop: ".25rem" }}
                       >
                         {vote.votes} voix
                       </span>
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {/* Message d'égalité */}
+            {isTie && (
+              <div
+                className="info-banner banner-red"
+                style={{ marginBottom: "1rem" }}
+              >
+                <span className="banner-icon">⚠️</span>
+                <span>
+                  <strong>Égalité détectée !</strong> Plusieurs photos sont à
+                  égalité pour la première place. Les jurés doivent voter à
+                  nouveau pour départager les photos ci-dessous.
+                </span>
               </div>
             )}
 
@@ -920,7 +1004,7 @@ function PalmaresView({ showFlash, user }) {
                 <span>
                   Vous avez voté pour{" "}
                   <strong>
-                    {eyePrizeData?.myVote?.submissions?.anonymous_id}
+                    {data.eyePrize?.myVote?.anonymousId || "une photo"}
                   </strong>
                   . Vous pouvez modifier votre vote à tout moment.
                 </span>
@@ -972,12 +1056,12 @@ function PalmaresView({ showFlash, user }) {
                 {(data.allSubmissions || []).map((sub) => (
                   <div
                     key={sub.id}
-                    className={`photo-item ${eyePrizeData?.myVote?.submission_id === sub.id ? "selected" : ""}`}
+                    className={`photo-item ${data.eyePrize?.myVote?.submissionId === sub.id ? "selected" : ""}`}
                     onClick={() => setSelectedPhoto(sub)}
                     style={{
                       cursor: "pointer",
                       border:
-                        eyePrizeData?.myVote?.submission_id === sub.id
+                        data.eyePrize?.myVote?.submissionId === sub.id
                           ? "3px solid var(--amber)"
                           : "1.5px solid var(--sand-border)",
                     }}
@@ -1001,6 +1085,7 @@ function PalmaresView({ showFlash, user }) {
                           alignItems: "center",
                           justifyContent: "center",
                           background: "var(--sand-dark)",
+                          fontSize: "2rem",
                         }}
                       >
                         📷
@@ -1022,7 +1107,7 @@ function PalmaresView({ showFlash, user }) {
                           width: "100%",
                         }}
                       >
-                        {sub.anonymous_id}
+                        {sub.participantName}
                       </div>
                     </div>
                   </div>
@@ -1068,7 +1153,7 @@ function PalmaresView({ showFlash, user }) {
               </button>
             </div>
             <div className="modal-body" style={{ overflowY: "auto" }}>
-              {voteCounts.length === 0 ? (
+              {eyeVotes.length === 0 ? (
                 <div
                   style={{
                     textAlign: "center",
@@ -1083,7 +1168,7 @@ function PalmaresView({ showFlash, user }) {
                   className="photo-grid"
                   style={{ gridTemplateColumns: "1fr" }}
                 >
-                  {voteCounts
+                  {eyeVotes
                     .sort((a, b) => b.votes - a.votes)
                     .map((vote, idx) => (
                       <div
@@ -1111,18 +1196,16 @@ function PalmaresView({ showFlash, user }) {
                         )}
                         <div style={{ flex: 1 }}>
                           <div style={{ fontWeight: 700 }}>
+                            {vote.participantName}
+                          </div>
+                          <div
+                            style={{
+                              fontSize: ".75rem",
+                              color: "var(--ink-muted)",
+                            }}
+                          >
                             {vote.anonymousId}
                           </div>
-                          {vote.author && (
-                            <div
-                              style={{
-                                fontSize: ".75rem",
-                                color: "var(--ink-muted)",
-                              }}
-                            >
-                              {vote.author}
-                            </div>
-                          )}
                         </div>
                         <div>
                           <span
@@ -1143,6 +1226,107 @@ function PalmaresView({ showFlash, user }) {
                 onClick={() => setShowResultsModal(false)}
               >
                 Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL D'ÉGALITÉ - DÉPARTAGE */}
+      {showTieModal && tiedPhotos.length > 0 && (
+        <div className="modal-backdrop" onClick={() => setShowTieModal(false)}>
+          <div
+            className="modal"
+            style={{ maxWidth: "700px", maxHeight: "80dvh" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header">
+              <h3>⚠️ Égalité — Départagez les photos</h3>
+              <button
+                className="btn btn-sm"
+                onClick={() => setShowTieModal(false)}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="modal-body">
+              <p style={{ marginBottom: "1rem", color: "var(--ink-muted)" }}>
+                Plusieurs photos sont à égalité. Veuillez voter pour celle que
+                vous préférez.
+              </p>
+              <div
+                className="photo-grid"
+                style={{
+                  gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+                }}
+              >
+                {tiedPhotos.map((photo) => (
+                  <div
+                    key={photo.submissionId}
+                    className="card"
+                    style={{
+                      textAlign: "center",
+                      padding: "1rem",
+                      cursor: "pointer",
+                      border: tieBreakerVotes[photo.submissionId]
+                        ? "3px solid var(--amber)"
+                        : "1px solid var(--sand-border)",
+                    }}
+                    onClick={() => {
+                      setTieBreakerVotes({ [photo.submissionId]: true });
+                      handleTieBreakerVote(photo.submissionId);
+                    }}
+                  >
+                    {photo.photoUrl ? (
+                      <img
+                        src={photo.photoUrl}
+                        alt=""
+                        style={{
+                          width: "100%",
+                          height: "150px",
+                          objectFit: "cover",
+                          borderRadius: "8px",
+                          marginBottom: ".5rem",
+                        }}
+                      />
+                    ) : (
+                      <div
+                        style={{
+                          width: "100%",
+                          height: "150px",
+                          background: "var(--sand-dark)",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          borderRadius: "8px",
+                          marginBottom: ".5rem",
+                          fontSize: "3rem",
+                        }}
+                      >
+                        📷
+                      </div>
+                    )}
+                    <div style={{ fontWeight: 700 }}>
+                      {photo.participantName}
+                    </div>
+                    <div
+                      style={{ fontSize: ".75rem", color: "var(--ink-muted)" }}
+                    >
+                      {photo.anonymousId}
+                    </div>
+                    <div
+                      className="badge badge-amber"
+                      style={{ marginTop: ".5rem" }}
+                    >
+                      {photo.votes} voix
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn" onClick={() => setShowTieModal(false)}>
+                Annuler
               </button>
             </div>
           </div>
