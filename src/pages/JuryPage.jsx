@@ -515,40 +515,29 @@ export default function JuryPage() {
 function PalmaresView({ showFlash, user }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [eyePrizeData, setEyePrizeData] = useState(null);
-
-  // Modals
   const [showVoteModal, setShowVoteModal] = useState(false);
   const [showResultsModal, setShowResultsModal] = useState(false);
   const [showTieModal, setShowTieModal] = useState(false);
-
-  // Vote state
   const [selectedPhoto, setSelectedPhoto] = useState(null);
   const [voting, setVoting] = useState(false);
-  const [finalizing, setFinalizing] = useState(false);
-  const [tieSubmissions, setTieSubmissions] = useState([]);
-
-  // Expanded favorite detail
-  const [expandedFav, setExpandedFav] = useState(null);
-
-  const isJuror = user?.role === "juror" || user?.role === "admin";
+  const [eyePrizeData, setEyePrizeData] = useState(null);
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const palmaresResult = await api.get("/results/palmares");
-      setData(palmaresResult);
-
-      // Prix de l'œil — disponible pour les jurés seulement
-      if (isJuror) {
-        const votesResult = await api
-          .get("/results/eye-prize/votes")
-          .catch(() => null);
-        setEyePrizeData(votesResult);
-      }
+      const result = await api.get("/results/palmares");
+      console.log("[PalmaresView] Données reçues:", result);
+      setData(result);
+      setEyePrizeData({
+        voteCounts: result.eyePrizeVotes || [],
+        myVote: result.myEyePrizeVote,
+        finalResult: result.eyePrize,
+        hasTie: result.eyePrizeHasTie || false,
+        tiedPhotos: result.eyePrizeTiedPhotos || [],
+      });
     } catch (e) {
-      console.error(e);
-      showFlash?.("❌ " + e.message);
+      console.error("[PalmaresView] Erreur:", e);
+      showFlash?.(e.message);
     } finally {
       setLoading(false);
     }
@@ -558,7 +547,6 @@ function PalmaresView({ showFlash, user }) {
     loadData();
   }, []);
 
-  // ── Vote Prix de l'œil ──────────────────────────────────────
   const handleVote = async (submissionId) => {
     setVoting(true);
     try {
@@ -574,45 +562,35 @@ function PalmaresView({ showFlash, user }) {
     }
   };
 
-  // ── Finalisation Prix de l'œil ──────────────────────────────
-  const handleFinalize = async (submissionId) => {
-    setFinalizing(true);
-    try {
-      await api.post("/results/eye-prize/finalize", { submissionId });
-      showFlash("✅ Prix de l'œil finalisé !");
-      await loadData();
-      setShowResultsModal(false);
-      setShowTieModal(false);
-    } catch (e) {
-      if (e.hasTie) {
-        setTieSubmissions(e.tiedSubmissions || []);
-        setShowTieModal(true);
-        showFlash("⚠️ Égalité détectée — délibération nécessaire.");
-      } else {
-        showFlash("❌ " + e.message);
-      }
-    } finally {
-      setFinalizing(false);
-    }
-  };
-
-  if (loading)
+  if (loading) {
     return (
       <div style={{ textAlign: "center", padding: "3rem" }}>
         <span className="spinner spinner-lg" />
       </div>
     );
+  }
 
-  const hasVoted = eyePrizeData?.myVote != null;
+  if (!data || !data.generalRanking?.length) {
+    return (
+      <div className="empty-state">
+        <div className="empty-icon">🏆</div>
+        <div className="empty-title">Résultats non disponibles</div>
+        <p>Les résultats seront publiés prochainement.</p>
+      </div>
+    );
+  }
+
+  const isJuror = user?.role === "juror" || user?.role === "admin";
+  const hasVoted = eyePrizeData?.myVote !== null;
   const voteCounts = eyePrizeData?.voteCounts || [];
   const finalResult = eyePrizeData?.finalResult;
   const hasTie = eyePrizeData?.hasTie;
-  const favoriteCounts = data?.favoriteCounts || [];
+  const tiedPhotos = eyePrizeData?.tiedPhotos || [];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-      {/* ── 1. Photo d'Or ───────────────────────────────────────── */}
-      {data?.bestPhotographer && (
+      {/* 1. Photo d'Or */}
+      {data.bestPhotographer && (
         <div className="section">
           <div className="section-header">
             <div className="section-title">
@@ -643,20 +621,20 @@ function PalmaresView({ showFlash, user }) {
                 marginTop: ".25rem",
               }}
             >
-              {data.bestPhotographer.total?.toFixed(1)} points totaux ·{" "}
-              {data.bestPhotographer.finalists} victoire(s)
+              {data.bestPhotographer.total.toFixed(1)} points totaux ·{" "}
+              {data.bestPhotographer.finalists} victoire(s) par catégorie
             </div>
           </div>
         </div>
       )}
 
-      {/* ── 2. Classement général ───────────────────────────────── */}
+      {/* 2. Classement général */}
       <div className="section">
         <div className="section-header">
           <div className="section-title">📊 Classement général</div>
         </div>
         <div className="panel">
-          {data?.generalRanking?.slice(0, 10).map((p, i) => (
+          {data.generalRanking.slice(0, 10).map((p, i) => (
             <div
               key={i}
               style={{
@@ -681,7 +659,7 @@ function PalmaresView({ showFlash, user }) {
         </div>
       </div>
 
-      {/* ── 3. Prix par catégorie ───────────────────────────────── */}
+      {/* 3. Prix par catégorie */}
       <div className="section">
         <div className="section-header">
           <div className="section-title">🏅 Prix par catégorie</div>
@@ -689,448 +667,320 @@ function PalmaresView({ showFlash, user }) {
         <div
           style={{ display: "flex", flexDirection: "column", gap: ".75rem" }}
         >
-          {(data?.byCategory || [])
+          {(data.byCategory || [])
             .filter((r) => r.rank === 1)
-            .map((winner, idx) => (
-              <div key={idx} className="card">
-                <div
-                  style={{
-                    fontSize: ".72rem",
-                    fontWeight: 700,
-                    textTransform: "uppercase",
-                    color: "var(--ink-faint)",
-                  }}
-                >
-                  {winner.categories?.name}
-                </div>
-                <div
-                  style={{
-                    fontFamily: "'DM Serif Display', serif",
-                    fontSize: "1.1rem",
-                    color: "var(--amber)",
-                    marginTop: ".25rem",
-                  }}
-                >
-                  🥇{" "}
-                  {winner.author ||
-                    winner.submissions?.anonymous_id ||
-                    "Anonyme"}
-                </div>
-                <div
-                  style={{
-                    fontSize: ".8rem",
-                    color: "var(--ink-muted)",
-                    marginTop: ".25rem",
-                  }}
-                >
-                  Moyenne : {winner.average_score?.toFixed(1)}/20
-                </div>
-              </div>
-            ))}
-        </div>
-      </div>
-
-      {/* ── 4. Coups de cœur du jury ────────────────────────────── */}
-      <div className="section">
-        <div className="section-header">
-          <div className="section-title">❤️ Coups de cœur du jury</div>
-        </div>
-
-        {favoriteCounts.length === 0 ? (
-          <div className="info-banner banner-amber">
-            <span className="banner-icon">⏳</span>
-            Aucun coup de cœur n'a encore été attribué.
-          </div>
-        ) : (
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
-              gap: "1rem",
-            }}
-          >
-            {favoriteCounts.map((fav, idx) => (
-              <div
-                key={idx}
-                className="card"
-                style={{ padding: 0, overflow: "hidden", cursor: "pointer" }}
-                onClick={() =>
-                  setExpandedFav(
-                    expandedFav?.submissionId === fav.submissionId ? null : fav,
-                  )
-                }
-              >
-                {/* Photo */}
-                <div style={{ position: "relative", height: "180px" }}>
-                  {fav.photoUrl ? (
-                    <img
-                      src={fav.photoUrl}
-                      alt=""
-                      style={{
-                        width: "100%",
-                        height: "100%",
-                        objectFit: "cover",
-                      }}
-                    />
-                  ) : (
-                    <div
-                      style={{
-                        width: "100%",
-                        height: "100%",
-                        background: "var(--sand-dark)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontSize: "2rem",
-                      }}
-                    >
-                      📷
-                    </div>
-                  )}
-                  {/* Badge nb coups de cœur */}
+            .map((winner, idx) => {
+              const categoryName = winner.categories?.name;
+              const authorName = winner.author;
+              return (
+                <div key={idx} className="card">
                   <div
                     style={{
-                      position: "absolute",
-                      top: "8px",
-                      right: "8px",
-                      background: "rgba(0,0,0,.65)",
-                      borderRadius: "999px",
-                      padding: "3px 10px",
-                      color: "#fff",
-                      fontSize: ".75rem",
+                      fontSize: ".72rem",
                       fontWeight: 700,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "4px",
+                      textTransform: "uppercase",
+                      color: "var(--ink-faint)",
                     }}
                   >
-                    ❤️ {fav.voteCount}
+                    {categoryName}
                   </div>
-                </div>
-
-                {/* Infos */}
-                <div style={{ padding: ".75rem 1rem" }}>
-                  <div style={{ fontWeight: 700, fontSize: ".9rem" }}>
-                    {fav.anonymousId}
+                  <div
+                    style={{
+                      fontFamily: "'DM Serif Display', serif",
+                      fontSize: "1.1rem",
+                      color: "var(--amber)",
+                      marginTop: ".25rem",
+                    }}
+                  >
+                    🥇{" "}
+                    {authorName ||
+                      winner.submissions?.anonymous_id ||
+                      "Anonyme"}
                   </div>
                   <div
                     style={{
                       fontSize: ".8rem",
                       color: "var(--ink-muted)",
-                      marginTop: ".15rem",
+                      marginTop: ".25rem",
                     }}
                   >
-                    📸 {fav.author}
+                    Moyenne : {winner.average_score?.toFixed(1)}/20
                   </div>
-                  {fav.categoryName && (
-                    <div
-                      style={{
-                        fontSize: ".7rem",
-                        color: "var(--ink-faint)",
-                        marginTop: ".1rem",
-                      }}
-                    >
-                      {fav.categoryName}
-                    </div>
-                  )}
+                </div>
+              );
+            })}
+        </div>
+      </div>
 
-                  {/* Détail des jurés — affiché au clic */}
-                  {expandedFav?.submissionId === fav.submissionId &&
-                    fav.jurorVotes?.length > 0 && (
-                      <div
-                        style={{
-                          marginTop: ".6rem",
-                          paddingTop: ".6rem",
-                          borderTop: "1px solid var(--sand-border)",
-                        }}
-                      >
-                        <div
-                          style={{
-                            fontSize: ".7rem",
-                            fontWeight: 700,
-                            textTransform: "uppercase",
-                            color: "var(--ink-faint)",
-                            marginBottom: ".35rem",
-                          }}
-                        >
-                          Votes des jurés
-                        </div>
-                        <div
-                          style={{
-                            display: "flex",
-                            flexDirection: "column",
-                            gap: ".25rem",
-                          }}
-                        >
-                          {fav.jurorVotes.map((v, vi) => (
-                            <div
-                              key={vi}
-                              style={{
-                                fontSize: ".75rem",
-                                color: "var(--ink-muted)",
-                                display: "flex",
-                                alignItems: "center",
-                                gap: ".35rem",
-                              }}
-                            >
-                              <span style={{ color: "var(--amber)" }}>❤️</span>
-                              {v.jurorName}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+      {/* 4. Coup de cœur du jury - AVEC PHOTOS */}
+      <div className="section">
+        <div className="section-header">
+          <div className="section-title">❤️ Coup de cœur du jury</div>
+        </div>
+        {data.favoriteCounts && data.favoriteCounts.length > 0 ? (
+          <div
+            className="photo-grid"
+            style={{
+              gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+            }}
+          >
+            {data.favoriteCounts.map((fav, idx) => (
+              <div
+                key={idx}
+                className="card"
+                style={{ textAlign: "center", padding: "1rem" }}
+              >
+                {fav.photoUrl ? (
+                  <img
+                    src={fav.photoUrl}
+                    alt=""
+                    style={{
+                      width: "100%",
+                      height: "150px",
+                      objectFit: "cover",
+                      borderRadius: "8px",
+                      marginBottom: ".5rem",
+                    }}
+                  />
+                ) : (
+                  <div
+                    style={{
+                      width: "100%",
+                      height: "150px",
+                      background: "var(--sand-dark)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      borderRadius: "8px",
+                      marginBottom: ".5rem",
+                    }}
+                  >
+                    📷
+                  </div>
+                )}
+                <div style={{ fontWeight: 700 }}>
+                  {fav.author || fav.anonymousId}
+                </div>
+                {fav.categoryName && (
+                  <div style={{ fontSize: ".7rem", color: "var(--ink-muted)" }}>
+                    {fav.categoryName}
+                  </div>
+                )}
+                <div
+                  className="badge badge-amber"
+                  style={{ marginTop: ".5rem" }}
+                >
+                  {fav.count} coup(s) de cœur
                 </div>
               </div>
             ))}
           </div>
+        ) : (
+          <div className="info-banner banner-amber">
+            <span className="banner-icon">⏳</span>
+            Aucun coup de cœur n'a encore été attribué.
+          </div>
         )}
       </div>
 
-      {/* ── 5. Prix de l'œil (jurés seulement) ──────────────────── */}
-      {isJuror && (
-        <div className="section">
-          <div className="section-header">
-            <div className="section-title">
-              👁️ Prix de l'œil — Photo la plus originale
+      {/* 5. Prix de l'œil - AVEC GESTION DES ÉGALITÉS */}
+      <div className="section">
+        <div className="section-header">
+          <div className="section-title">
+            👁️ Prix de l'œil — Photo la plus originale
+          </div>
+        </div>
+
+        {finalResult ? (
+          <div className="card" style={{ textAlign: "center" }}>
+            {finalResult.submissions?.photoUrl && (
+              <img
+                src={finalResult.submissions.photoUrl}
+                alt="Photo gagnante"
+                style={{
+                  width: "100%",
+                  maxHeight: 300,
+                  objectFit: "contain",
+                  borderRadius: 8,
+                  marginBottom: "1rem",
+                }}
+              />
+            )}
+            <div style={{ fontSize: "2.5rem", marginBottom: ".5rem" }}>
+              👁️✨
+            </div>
+            <div
+              style={{
+                fontFamily: "'DM Serif Display', serif",
+                fontSize: "1.2rem",
+                color: "var(--amber)",
+              }}
+            >
+              {finalResult.submissions?.anonymous_id}
+            </div>
+            <div style={{ fontSize: ".8rem", color: "var(--ink-muted)" }}>
+              {finalResult.submissions?.users &&
+                `par ${finalResult.submissions.users.first_name} ${finalResult.submissions.users.last_name}`}
+              {finalResult.submissions?.categories?.name &&
+                ` · ${finalResult.submissions.categories.name}`}
+            </div>
+            <div className="badge badge-amber" style={{ marginTop: ".5rem" }}>
+              {finalResult.total_votes} vote(s)
             </div>
           </div>
+        ) : (
+          <>
+            {/* MODAL D'ÉGALITÉ */}
+            {hasTie && isJuror && (
+              <div
+                className="info-banner banner-red"
+                style={{
+                  marginBottom: "1rem",
+                  background: "#F7E0DC",
+                  borderColor: "#B84040",
+                }}
+              >
+                <span className="banner-icon">⚠️</span>
+                <div>
+                  <strong>Égalité détectée !</strong>
+                  <p style={{ margin: "0.25rem 0 0" }}>
+                    {tiedPhotos.length} photos sont à égalité avec{" "}
+                    {tiedPhotos[0]?.votes} voix chacune. L'administrateur va
+                    départager les ex-aequo.
+                  </p>
+                </div>
+              </div>
+            )}
 
-          {/* Résultat finalisé */}
-          {finalResult ? (
-            <div className="card" style={{ textAlign: "center" }}>
-              {finalResult.submissions?.photoUrl && (
-                <img
-                  src={finalResult.submissions.photoUrl}
-                  alt="Photo gagnante"
+            {/* Résumé des votes */}
+            {voteCounts.length > 0 && (
+              <div className="panel" style={{ marginBottom: "1rem" }}>
+                <div
+                  className="section-header"
                   style={{
-                    width: "100%",
-                    maxHeight: 320,
-                    objectFit: "contain",
-                    borderRadius: 8,
-                    marginBottom: "1rem",
-                    background: "#000",
+                    padding: "0.75rem 1rem",
+                    marginBottom: 0,
+                    borderBottom: "1px solid var(--sand-border)",
                   }}
-                />
-              )}
-              <div style={{ fontSize: "2.5rem", marginBottom: ".5rem" }}>
-                👁️✨
-              </div>
-              <div
-                style={{
-                  fontFamily: "'DM Serif Display', serif",
-                  fontSize: "1.2rem",
-                  color: "var(--amber)",
-                }}
-              >
-                {finalResult.submissions?.anonymous_id}
-              </div>
-              <div
-                style={{
-                  fontSize: ".8rem",
-                  color: "var(--ink-muted)",
-                  marginTop: ".25rem",
-                }}
-              >
-                {finalResult.submissions?.users &&
-                  `par ${finalResult.submissions.users.first_name} ${finalResult.submissions.users.last_name}`}
-                {finalResult.submissions?.categories?.name &&
-                  ` · ${finalResult.submissions.categories.name}`}
-              </div>
-              <div className="badge badge-amber" style={{ marginTop: ".5rem" }}>
-                {finalResult.total_votes} vote(s)
-              </div>
-            </div>
-          ) : (
-            <>
-              {/* Bandeau statut de mon vote */}
-              <div
-                className="info-banner banner-amber"
-                style={{ marginBottom: "1rem" }}
-              >
-                <span className="banner-icon">🗳️</span>
-                {hasVoted ? (
-                  <span>
-                    Vous avez voté pour{" "}
-                    <strong>
-                      {eyePrizeData?.myVote?.submissions?.anonymous_id}
-                    </strong>
-                    . Vous pouvez modifier votre vote.
-                  </span>
-                ) : (
-                  <span>
-                    Vous n'avez pas encore voté. Choisissez la photo la plus
-                    originale !
-                  </span>
-                )}
-              </div>
-
-              {/* Bouton voter */}
-              <button
-                className="btn btn-primary btn-full"
-                onClick={() => setShowVoteModal(true)}
-                style={{ marginBottom: "1rem" }}
-              >
-                {hasVoted
-                  ? "🔄 Modifier mon vote"
-                  : "🗳️ Voter pour ma photo préférée"}
-              </button>
-
-              {/* Résumé des votes actuels */}
-              {voteCounts.length > 0 && (
-                <div className="panel">
-                  <div
-                    className="section-header"
-                    style={{
-                      padding: ".75rem 1rem",
-                      borderBottom: "1px solid var(--sand-border)",
-                    }}
+                >
+                  <div className="section-title">📊 Votes actuels</div>
+                  <button
+                    className="btn btn-sm"
+                    onClick={() => setShowResultsModal(true)}
                   >
-                    <div className="section-title">
-                      📊 Votes actuels (
-                      {eyePrizeData?.jurorsWhoVoted?.length || 0} /{" "}
-                      {eyePrizeData?.totalJurors || 0} jurés)
-                    </div>
-                    {user?.role === "admin" && (
-                      <button
-                        className="btn btn-sm btn-primary"
-                        onClick={() => setShowResultsModal(true)}
-                      >
-                        🏆 Finaliser
-                      </button>
-                    )}
-                  </div>
-
-                  {hasTie && (
+                    Voir tous les votes
+                  </button>
+                </div>
+                <div
+                  className="photo-grid"
+                  style={{
+                    padding: "0.75rem",
+                    gridTemplateColumns:
+                      "repeat(auto-fill, minmax(150px, 1fr))",
+                  }}
+                >
+                  {voteCounts.slice(0, 6).map((vote, idx) => (
                     <div
-                      className="info-banner banner-red"
-                      style={{ margin: ".75rem 1rem 0" }}
+                      key={idx}
+                      className="card"
+                      style={{ textAlign: "center", padding: ".5rem" }}
                     >
-                      <span className="banner-icon">⚠️</span>
-                      Égalité détectée ! Le jury doit délibérer.
-                    </div>
-                  )}
-
-                  <div style={{ padding: ".75rem" }}>
-                    {voteCounts.slice(0, 5).map((vote, idx) => (
+                      {vote.photoUrl ? (
+                        <img
+                          src={vote.photoUrl}
+                          alt=""
+                          style={{
+                            width: "100%",
+                            height: "100px",
+                            objectFit: "cover",
+                            borderRadius: "6px",
+                          }}
+                        />
+                      ) : (
+                        <div
+                          style={{
+                            width: "100%",
+                            height: "100px",
+                            background: "var(--sand-dark)",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            borderRadius: "6px",
+                          }}
+                        >
+                          📷
+                        </div>
+                      )}
                       <div
-                        key={idx}
                         style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: ".75rem",
-                          padding: ".5rem",
-                          borderRadius: "8px",
-                          marginBottom: ".4rem",
-                          background:
-                            idx === 0
-                              ? "rgba(var(--amber-rgb),.08)"
-                              : "transparent",
+                          fontSize: ".7rem",
+                          fontWeight: 600,
+                          marginTop: ".25rem",
                         }}
                       >
-                        {vote.photoUrl ? (
-                          <img
-                            src={vote.photoUrl}
-                            alt=""
-                            style={{
-                              width: "52px",
-                              height: "52px",
-                              objectFit: "cover",
-                              borderRadius: "6px",
-                              flexShrink: 0,
-                            }}
-                          />
-                        ) : (
-                          <div
-                            style={{
-                              width: "52px",
-                              height: "52px",
-                              background: "var(--sand-dark)",
-                              borderRadius: "6px",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              flexShrink: 0,
-                            }}
-                          >
-                            📷
-                          </div>
-                        )}
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontWeight: 700, fontSize: ".85rem" }}>
-                            {vote.anonymousId}
-                          </div>
-                          <div
-                            style={{
-                              fontSize: ".72rem",
-                              color: "var(--ink-muted)",
-                            }}
-                          >
-                            {vote.author}
-                          </div>
-                          <div
-                            style={{
-                              fontSize: ".68rem",
-                              color: "var(--ink-faint)",
-                            }}
-                          >
-                            {vote.categoryName}
-                          </div>
-                        </div>
-                        <span
-                          className="badge badge-amber"
-                          style={{ flexShrink: 0, fontWeight: 700 }}
-                        >
-                          {vote.votes} voix
-                        </span>
+                        {vote.author || vote.anonymousId}
                       </div>
-                    ))}
-                    {voteCounts.length > 5 && (
-                      <button
-                        className="btn btn-sm btn-full"
-                        style={{ marginTop: ".5rem" }}
-                        onClick={() => setShowResultsModal(true)}
+                      <span
+                        className="badge badge-amber"
+                        style={{ fontSize: ".65rem" }}
                       >
-                        Voir tous les votes ({voteCounts.length})
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Jurés n'ayant pas encore voté */}
-                  {eyePrizeData?.jurorsMissing?.length > 0 && (
-                    <div
-                      style={{
-                        padding: ".5rem 1rem .75rem",
-                        fontSize: ".72rem",
-                        color: "var(--ink-faint)",
-                        borderTop: "1px solid var(--sand-border)",
-                      }}
-                    >
-                      En attente :{" "}
-                      {eyePrizeData.jurorsMissing
-                        .map((j) => j.first_name)
-                        .join(", ")}
+                        {vote.votes} voix
+                      </span>
                     </div>
-                  )}
+                  ))}
                 </div>
-              )}
-            </>
-          )}
-        </div>
-      )}
+              </div>
+            )}
 
-      {/* ════════════════════════════════════════════════════════
-          MODAL — Voter pour le Prix de l'œil
-      ════════════════════════════════════════════════════════ */}
+            {/* Message si déjà voté */}
+            <div
+              className="info-banner banner-amber"
+              style={{ marginBottom: "1rem" }}
+            >
+              <span className="banner-icon">🗳️</span>
+              {hasVoted ? (
+                <span>
+                  Vous avez voté pour{" "}
+                  <strong>
+                    {eyePrizeData?.myVote?.submissions?.anonymous_id}
+                  </strong>
+                  . Vous pouvez modifier votre vote à tout moment.
+                </span>
+              ) : (
+                <span>
+                  Vous n'avez pas encore voté. Sélectionnez votre photo préférée
+                  !
+                </span>
+              )}
+            </div>
+
+            {/* Bouton pour voter (désactivé si égalité non résolue) */}
+            <button
+              className="btn btn-primary btn-full"
+              onClick={() => setShowVoteModal(true)}
+              disabled={hasTie}
+              style={{ opacity: hasTie ? 0.5 : 1 }}
+            >
+              {hasVoted
+                ? "🔄 Modifier mon vote"
+                : hasTie
+                  ? "⏳ Égalité en cours de résolution"
+                  : "🗳️ Voter pour ma photo préférée"}
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* MODAL DE VOTE */}
       {showVoteModal && (
         <div className="modal-backdrop" onClick={() => setShowVoteModal(false)}>
           <div
             className="modal"
-            style={{ maxWidth: "760px", maxHeight: "85dvh" }}
+            style={{ maxWidth: "700px", maxHeight: "80dvh" }}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="modal-header">
-              <h3>👁️ Choisissez la photo la plus originale</h3>
+              <h3>👁️ Sélectionnez votre photo préférée</h3>
               <button
                 className="btn btn-sm"
                 onClick={() => setShowVoteModal(false)}
@@ -1139,159 +989,91 @@ function PalmaresView({ showFlash, user }) {
               </button>
             </div>
             <div className="modal-body" style={{ overflowY: "auto" }}>
-              {selectedPhoto && (
-                <div
-                  className="info-banner banner-amber"
-                  style={{ marginBottom: "1rem" }}
-                >
-                  <span className="banner-icon">✔️</span>
-                  Sélectionnée : <strong>{selectedPhoto.anonymous_id}</strong> —
-                  confirmez ci-dessous.
-                </div>
-              )}
               <div
+                className="photo-grid"
                 style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
-                  gap: ".5rem",
+                  gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
                 }}
               >
-                {(data?.allSubmissions || []).map((sub) => {
-                  const isMyCurrent =
-                    eyePrizeData?.myVote?.submission_id === sub.id;
-                  const isSelected = selectedPhoto?.id === sub.id;
-                  return (
-                    <div
-                      key={sub.id}
-                      onClick={() => setSelectedPhoto(isSelected ? null : sub)}
-                      style={{
-                        cursor: "pointer",
-                        borderRadius: "8px",
-                        overflow: "hidden",
-                        border: isSelected
+                {(data.allSubmissions || []).map((sub) => (
+                  <div
+                    key={sub.id}
+                    className={`photo-item ${eyePrizeData?.myVote?.submission_id === sub.id ? "selected" : ""}`}
+                    onClick={() => setSelectedPhoto(sub)}
+                    style={{
+                      cursor: "pointer",
+                      border:
+                        eyePrizeData?.myVote?.submission_id === sub.id
                           ? "3px solid var(--amber)"
-                          : isMyCurrent
-                            ? "3px solid var(--green, #4ade80)"
-                            : "2px solid var(--sand-border)",
-                        position: "relative",
-                        aspectRatio: "1",
-                        background: "var(--sand-dark)",
-                      }}
-                    >
-                      {sub.photoUrl ? (
-                        <img
-                          src={sub.photoUrl}
-                          alt=""
-                          style={{
-                            width: "100%",
-                            height: "100%",
-                            objectFit: "cover",
-                            display: "block",
-                          }}
-                        />
-                      ) : (
-                        <div
-                          style={{
-                            width: "100%",
-                            height: "100%",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            fontSize: "1.5rem",
-                          }}
-                        >
-                          📷
-                        </div>
-                      )}
-                      {/* Overlay avec l'identifiant */}
+                          : "1.5px solid var(--sand-border)",
+                    }}
+                  >
+                    {sub.photoUrl ? (
+                      <img
+                        src={sub.photoUrl}
+                        alt=""
+                        style={{
+                          width: "100%",
+                          height: "100%",
+                          objectFit: "cover",
+                        }}
+                      />
+                    ) : (
                       <div
                         style={{
-                          position: "absolute",
-                          bottom: 0,
-                          left: 0,
-                          right: 0,
-                          background:
-                            "linear-gradient(to top, rgba(0,0,0,.75), transparent)",
-                          padding: "1.5rem .4rem .35rem",
+                          width: "100%",
+                          height: "100%",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          background: "var(--sand-dark)",
+                        }}
+                      >
+                        📷
+                      </div>
+                    )}
+                    <div
+                      className="photo-overlay"
+                      style={{
+                        opacity: 1,
+                        background:
+                          "linear-gradient(to top, rgba(0,0,0,.7) 0%, transparent 70%)",
+                      }}
+                    >
+                      <div
+                        style={{
                           color: "#fff",
-                          fontSize: ".65rem",
-                          fontWeight: 700,
+                          fontSize: ".7rem",
                           textAlign: "center",
+                          width: "100%",
                         }}
                       >
                         {sub.anonymous_id}
                       </div>
-                      {/* Indicateur vote actuel */}
-                      {isMyCurrent && (
-                        <div
-                          style={{
-                            position: "absolute",
-                            top: "5px",
-                            right: "5px",
-                            background: "var(--green, #22c55e)",
-                            borderRadius: "50%",
-                            width: "20px",
-                            height: "20px",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            fontSize: ".6rem",
-                          }}
-                        >
-                          ✓
-                        </div>
-                      )}
-                      {/* Indicateur sélection en cours */}
-                      {isSelected && (
-                        <div
-                          style={{
-                            position: "absolute",
-                            top: "5px",
-                            left: "5px",
-                            background: "var(--amber)",
-                            borderRadius: "50%",
-                            width: "20px",
-                            height: "20px",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            fontSize: ".6rem",
-                            color: "#fff",
-                          }}
-                        >
-                          ★
-                        </div>
-                      )}
                     </div>
-                  );
-                })}
+                  </div>
+                ))}
               </div>
             </div>
             <div className="modal-footer">
-              <button
-                className="btn"
-                onClick={() => {
-                  setShowVoteModal(false);
-                  setSelectedPhoto(null);
-                }}
-              >
+              <button className="btn" onClick={() => setShowVoteModal(false)}>
                 Annuler
               </button>
-              <button
-                className="btn btn-primary"
-                onClick={() => selectedPhoto && handleVote(selectedPhoto.id)}
-                disabled={!selectedPhoto || voting}
-              >
-                {voting ? "⏳ Enregistrement…" : "✅ Confirmer mon vote"}
-              </button>
+              {selectedPhoto && (
+                <button
+                  className="btn btn-primary"
+                  onClick={() => handleVote(selectedPhoto.id)}
+                  disabled={voting}
+                >
+                  {voting ? "⏳" : "✅ Confirmer mon vote"}
+                </button>
+              )}
             </div>
           </div>
         </div>
       )}
 
-      {/* ════════════════════════════════════════════════════════
-          MODAL — Résultats complets + finalisation (admin)
-      ════════════════════════════════════════════════════════ */}
+      {/* MODAL DES RÉSULTATS DES VOTES */}
       {showResultsModal && (
         <div
           className="modal-backdrop"
@@ -1299,7 +1081,7 @@ function PalmaresView({ showFlash, user }) {
         >
           <div
             className="modal"
-            style={{ maxWidth: "600px", maxHeight: "85dvh" }}
+            style={{ maxWidth: "600px", maxHeight: "80dvh" }}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="modal-header">
@@ -1312,16 +1094,6 @@ function PalmaresView({ showFlash, user }) {
               </button>
             </div>
             <div className="modal-body" style={{ overflowY: "auto" }}>
-              {hasTie && (
-                <div
-                  className="info-banner banner-red"
-                  style={{ marginBottom: "1rem" }}
-                >
-                  <span className="banner-icon">⚠️</span>
-                  Égalité détectée ! Le jury doit délibérer et choisir la photo
-                  gagnante.
-                </div>
-              )}
               {voteCounts.length === 0 ? (
                 <div
                   style={{
@@ -1330,17 +1102,14 @@ function PalmaresView({ showFlash, user }) {
                     color: "var(--ink-muted)",
                   }}
                 >
-                  Aucun vote enregistré.
+                  Aucun vote enregistré pour le moment.
                 </div>
               ) : (
                 <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: ".5rem",
-                  }}
+                  className="photo-grid"
+                  style={{ gridTemplateColumns: "1fr" }}
                 >
-                  {[...voteCounts]
+                  {voteCounts
                     .sort((a, b) => b.votes - a.votes)
                     .map((vote, idx) => (
                       <div
@@ -1352,86 +1121,63 @@ function PalmaresView({ showFlash, user }) {
                           alignItems: "center",
                           gap: "1rem",
                           flexWrap: "wrap",
-                          background:
-                            idx === 0
-                              ? "rgba(var(--amber-rgb),.07)"
-                              : undefined,
+                          border:
+                            hasTie && vote.votes === voteCounts[0]?.votes
+                              ? "2px solid var(--amber)"
+                              : "none",
                         }}
                       >
-                        {vote.photoUrl ? (
+                        {vote.photoUrl && (
                           <img
                             src={vote.photoUrl}
                             alt=""
                             style={{
-                              width: "64px",
-                              height: "64px",
+                              width: "60px",
+                              height: "60px",
                               objectFit: "cover",
                               borderRadius: "8px",
-                              flexShrink: 0,
                             }}
                           />
-                        ) : (
-                          <div
-                            style={{
-                              width: "64px",
-                              height: "64px",
-                              background: "var(--sand-dark)",
-                              borderRadius: "8px",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                            }}
-                          >
-                            📷
-                          </div>
                         )}
-                        <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ flex: 1 }}>
                           <div style={{ fontWeight: 700 }}>
-                            {vote.anonymousId}
+                            {vote.author || vote.anonymousId}
                           </div>
-                          <div
-                            style={{
-                              fontSize: ".75rem",
-                              color: "var(--ink-muted)",
-                            }}
-                          >
-                            {vote.author}
-                          </div>
-                          <div
-                            style={{
-                              fontSize: ".7rem",
-                              color: "var(--ink-faint)",
-                            }}
-                          >
-                            {vote.categoryName}
-                          </div>
+                          {vote.categoryName && (
+                            <div
+                              style={{
+                                fontSize: ".7rem",
+                                color: "var(--ink-muted)",
+                              }}
+                            >
+                              {vote.categoryName}
+                            </div>
+                          )}
                         </div>
-                        <div
-                          style={{
-                            display: "flex",
-                            flexDirection: "column",
-                            alignItems: "flex-end",
-                            gap: ".4rem",
-                          }}
-                        >
+                        <div>
                           <span
                             className="badge badge-amber"
                             style={{ fontSize: "1rem", padding: ".3rem 1rem" }}
                           >
                             {vote.votes} voix
                           </span>
-                          {user?.role === "admin" && (
-                            <button
-                              className="btn btn-sm btn-primary"
-                              onClick={() => handleFinalize(vote.submissionId)}
-                              disabled={finalizing}
-                            >
-                              🏆 Finaliser
-                            </button>
-                          )}
                         </div>
                       </div>
                     ))}
+                </div>
+              )}
+              {hasTie && (
+                <div
+                  style={{
+                    marginTop: "1rem",
+                    padding: "0.75rem",
+                    background: "var(--amber-light)",
+                    borderRadius: "8px",
+                    textAlign: "center",
+                  }}
+                >
+                  ⚠️ <strong>Égalité détectée</strong> — L'administrateur va
+                  départager les photos ex-aequo.
                 </div>
               )}
             </div>
@@ -1440,109 +1186,6 @@ function PalmaresView({ showFlash, user }) {
                 className="btn"
                 onClick={() => setShowResultsModal(false)}
               >
-                Fermer
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ════════════════════════════════════════════════════════
-          MODAL — Égalité : délibération du jury
-      ════════════════════════════════════════════════════════ */}
-      {showTieModal && (
-        <div className="modal-backdrop" onClick={() => setShowTieModal(false)}>
-          <div
-            className="modal"
-            style={{ maxWidth: "620px" }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="modal-header">
-              <h3>⚠️ Égalité — Délibération du jury</h3>
-              <button
-                className="btn btn-sm"
-                onClick={() => setShowTieModal(false)}
-              >
-                ✕
-              </button>
-            </div>
-            <div className="modal-body">
-              <p style={{ marginBottom: "1rem", color: "var(--ink-muted)" }}>
-                Plusieurs photos ont le même nombre de votes. Le jury doit
-                délibérer et choisir la photo gagnante.
-              </p>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
-                  gap: "1rem",
-                }}
-              >
-                {tieSubmissions.map((sub, idx) => (
-                  <div
-                    key={idx}
-                    className="card"
-                    style={{ textAlign: "center", padding: "1rem" }}
-                  >
-                    {sub.photoUrl ? (
-                      <img
-                        src={sub.photoUrl}
-                        alt=""
-                        style={{
-                          width: "100%",
-                          height: "150px",
-                          objectFit: "cover",
-                          borderRadius: "8px",
-                          marginBottom: ".5rem",
-                        }}
-                      />
-                    ) : (
-                      <div
-                        style={{
-                          width: "100%",
-                          height: "150px",
-                          background: "var(--sand-dark)",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          borderRadius: "8px",
-                          marginBottom: ".5rem",
-                          fontSize: "2rem",
-                        }}
-                      >
-                        📷
-                      </div>
-                    )}
-                    <div style={{ fontWeight: 700 }}>{sub.anonymous_id}</div>
-                    <div
-                      style={{
-                        fontSize: ".75rem",
-                        color: "var(--ink-muted)",
-                        marginTop: ".2rem",
-                      }}
-                    >
-                      {sub.users?.first_name} {sub.users?.last_name}
-                    </div>
-                    <div
-                      className="badge badge-amber"
-                      style={{ margin: ".5rem 0" }}
-                    >
-                      {sub.votes} voix
-                    </div>
-                    <button
-                      className="btn btn-primary btn-sm"
-                      style={{ width: "100%" }}
-                      onClick={() => handleFinalize(sub.id)}
-                      disabled={finalizing}
-                    >
-                      🏆 Choisir cette photo
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button className="btn" onClick={() => setShowTieModal(false)}>
                 Fermer
               </button>
             </div>

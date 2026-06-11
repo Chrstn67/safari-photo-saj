@@ -560,6 +560,87 @@ router.delete("/photos/:id", async (req, res) => {
   res.json({ success: true });
 });
 
+// Ajouter cette route dans admin.js
+
+// POST /api/admin/eye-prize/resolve-tie
+router.post(
+  "/eye-prize/resolve-tie",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    const { winningSubmissionId } = req.body;
+
+    if (!winningSubmissionId) {
+      return res.status(400).json({ error: "winningSubmissionId requis" });
+    }
+
+    try {
+      // Récupérer les votes
+      const { data: votes } = await supabase
+        .from("eye_prize_votes")
+        .select("submission_id");
+
+      const counts = {};
+      (votes || []).forEach((v) => {
+        counts[v.submission_id] = (counts[v.submission_id] || 0) + 1;
+      });
+
+      const maxVotes = Math.max(...Object.values(counts));
+      const tiedSubmissions = Object.entries(counts)
+        .filter(([, count]) => count === maxVotes)
+        .map(([id]) => id);
+
+      if (!tiedSubmissions.includes(winningSubmissionId)) {
+        return res
+          .status(400)
+          .json({ error: "Cette photo n'est pas parmi les ex-aequo" });
+      }
+
+      // Supprimer l'ancien résultat
+      await supabase
+        .from("eye_prize_result")
+        .delete()
+        .neq("id", "00000000-0000-0000-0000-000000000000");
+
+      // Créer le nouveau résultat
+      const { data: result, error } = await supabase
+        .from("eye_prize_result")
+        .insert({
+          submission_id: winningSubmissionId,
+          total_votes: counts[winningSubmissionId],
+          is_finalized: true,
+          finalized_at: new Date().toISOString(),
+          finalized_by: req.user.id,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Mettre à jour l'état
+      await supabase.from("eye_prize_state").upsert({
+        id: 1,
+        has_tie: false,
+        resolved_at: new Date().toISOString(),
+        resolved_by: req.user.id,
+        winning_submission_id: winningSubmissionId,
+      });
+
+      await log(
+        req.user.id,
+        "EYE_PRIZE_TIE_RESOLVED",
+        "eye_prize_result",
+        winningSubmissionId,
+      );
+
+      res.json({ success: true, message: "Égalité résolue avec succès !" });
+    } catch (e) {
+      console.error("[resolve-tie] Erreur:", e);
+      res.status(500).json({ error: e.message });
+    }
+  },
+);
+
 /* ════════════════════════════════════════════════════════════════
    AUDIT LOG
 ════════════════════════════════════════════════════════════════ */
