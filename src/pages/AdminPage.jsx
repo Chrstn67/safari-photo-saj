@@ -1,4 +1,4 @@
-// frontend/src/pages/AdminPage.jsx
+// frontend/src/pages/AdminPage.jsx - VERSION COMPLÈTE CORRIGÉE
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "../../server/hooks/useAuth.jsx";
 import { api } from "../../server/utils/api.js";
@@ -10,7 +10,6 @@ export default function AdminPage() {
   const { user, logout } = useAuth();
   const [tab, setTab] = useState("dashboard");
   const [flash, setFlash] = useState("");
-  const [finalizingEyePrize, setFinalizingEyePrize] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
 
   function showFlash(msg) {
@@ -29,7 +28,6 @@ export default function AdminPage() {
     { id: "audit", label: "Audit", icon: "📋" },
   ];
 
-  // Ferme le menu si on clique sur un onglet
   function handleTabChange(id) {
     setTab(id);
     setShowMobileMenu(false);
@@ -110,7 +108,6 @@ export default function AdminPage() {
         </div>
       </div>
 
-      {/* Bottom nav mobile : burger à gauche + onglets */}
       <nav className="bottom-nav">
         <button
           className={`bottom-burger${showMobileMenu ? " active" : ""}`}
@@ -265,7 +262,7 @@ function DashboardTab({ showFlash }) {
 }
 
 /* ════════════════════════════════════════════════════════
-   DÉLIBÉRATIONS - AVEC SUPPRESSION DE SESSION
+   DÉLIBÉRATIONS
 ════════════════════════════════════════════════════════ */
 function DeliberationTab({ showFlash }) {
   const [categories, setCategories] = useState([]);
@@ -360,32 +357,25 @@ function DeliberationTab({ showFlash }) {
   }
 
   async function forceNextGlobal() {
-    // Trouver la session ouverte
     const openSession = sessions.find((s) => s.status === "open");
     if (!openSession) {
       showFlash("⚠️ Aucune délibération en cours");
       return;
     }
-
     if (
       !confirm(
         `Forcer le passage à la photo suivante dans "${openSession.categories?.name}" ?`,
       )
     )
       return;
-
     setForceNextLoading(true);
     try {
       const res = await api.post("/deliberations/next", {
         categoryId: openSession.category_id,
         forced: true,
       });
-      if (res.done) {
-        showFlash("✅ Catégorie terminée !");
-      } else {
-        showFlash("⏩ Photo suivante");
-      }
-      load(); // Recharger les sessions
+      showFlash(res.done ? "✅ Catégorie terminée !" : "⏩ Photo suivante");
+      load();
     } catch (e) {
       showFlash("❌ " + e.message);
     } finally {
@@ -393,54 +383,9 @@ function DeliberationTab({ showFlash }) {
     }
   }
 
-  // Ajouter ce bouton en haut du composant DeliberationTab, avant la liste des catégories
-  {
-    /* Bouton "Photo suivante" unique */
-  }
-  <div style={{ marginBottom: "1rem" }}>
-    <button
-      className={`btn btn-primary ${forceNextLoading ? "loading" : ""}`}
-      onClick={forceNextGlobal}
-      disabled={forceNextLoading || !sessions.some((s) => s.status === "open")}
-      style={{
-        background: "var(--amber)",
-        padding: ".6rem 1.2rem",
-        fontSize: ".9rem",
-      }}
-    >
-      {forceNextLoading ? "⏳" : "⏩ Photo suivante"}
-    </button>
-    <span
-      style={{
-        fontSize: ".75rem",
-        marginLeft: ".75rem",
-        color: "var(--ink-muted)",
-      }}
-    >
-      {sessions.some((s) => s.status === "open")
-        ? "Forcer le passage à la photo suivante (même si tous les jurés n'ont pas validé)"
-        : "Aucune session ouverte"}
-    </span>
-  </div>;
-
-  /* ── Supprimer complètement une session ── */
   async function deleteSession(categoryId, categoryName) {
-    const msg =
-      `⚠️ SUPPRESSION COMPLÈTE DE LA SESSION ⚠️\n\n` +
-      `Catégorie : ${categoryName}\n\n` +
-      `⚠️ Cette action va :\n` +
-      `• Supprimer TOUTES les soumissions dans cette catégorie\n` +
-      `• Remettre à zéro les photos (elles redeviennent disponibles)\n` +
-      `• Supprimer toutes les notes et validations\n` +
-      `• Supprimer les coups de cœur\n` +
-      `• Supprimer les résultats calculés\n\n` +
-      `✅ Ce qui est CONSERVÉ :\n` +
-      `• Les utilisateurs (participants, jurés, admin)\n` +
-      `• Les photos dans la banque des participants\n\n` +
-      `Action irréversible. Confirmer la suppression ?`;
-
+    const msg = `⚠️ SUPPRESSION COMPLÈTE DE LA SESSION ⚠️\n\nCatégorie : ${categoryName}\n\n⚠️ Cette action va :\n• Supprimer TOUTES les soumissions dans cette catégorie\n• Remettre à zéro les photos\n• Supprimer toutes les notes et validations\n• Supprimer les coups de cœur\n• Supprimer les résultats calculés\n\n✅ Ce qui est CONSERVÉ :\n• Les utilisateurs\n• Les photos dans la banque des participants\n\nAction irréversible. Confirmer ?`;
     if (!confirm(msg)) return;
-
     try {
       await api.delete(`/deliberations/session/${categoryId}`);
       showFlash(`🗑️ Session "${categoryName}" supprimée avec succès`);
@@ -456,22 +401,43 @@ function DeliberationTab({ showFlash }) {
         <div className="section-header">
           <div className="section-title">Gestion des délibérations</div>
         </div>
+
+        {/* Bouton "Photo suivante" unique */}
+        <div style={{ marginBottom: "1rem" }}>
+          <button
+            className={`btn btn-primary ${forceNextLoading ? "loading" : ""}`}
+            onClick={forceNextGlobal}
+            disabled={
+              forceNextLoading || !sessions.some((s) => s.status === "open")
+            }
+            style={{
+              background: "var(--amber)",
+              padding: ".6rem 1.2rem",
+              fontSize: ".9rem",
+            }}
+          >
+            {forceNextLoading ? "⏳" : "⏩ Photo suivante"}
+          </button>
+          <span
+            style={{
+              fontSize: ".75rem",
+              marginLeft: ".75rem",
+              color: "var(--ink-muted)",
+            }}
+          >
+            {sessions.some((s) => s.status === "open")
+              ? "Forcer le passage à la photo suivante"
+              : "Aucune session ouverte"}
+          </span>
+        </div>
+
         <div
           className="info-banner banner-amber"
           style={{ marginBottom: "1rem" }}
         >
-          <span className="banner-icon">🎯</span>
-          Ouvrez les catégories une par une. Le passage à la photo suivante est
-          automatique quand tous les jurés ont validé.
-        </div>
-        <div
-          className="info-banner banner-blue"
-          style={{ marginBottom: "1rem" }}
-        >
-          <span className="banner-icon">🗑️</span>
-          <strong>Nouveau :</strong> Vous pouvez maintenant supprimer
-          complètement une session. Les participants conservent leurs photos
-          dans leur banque, mais les soumissions et notes sont effacées.
+          <span className="banner-icon">🎯</span> Ouvrez les catégories une par
+          une. Le passage à la photo suivante est automatique quand tous les
+          jurés ont validé.
         </div>
 
         {loading && (
@@ -488,7 +454,6 @@ function DeliberationTab({ showFlash }) {
             const vals = validations[cat.id] || [];
             const isOpen = session?.status === "open";
             const hasSession = session !== undefined;
-
             return (
               <div key={cat.id} className="panel">
                 <div
@@ -602,16 +567,10 @@ function DeliberationTab({ showFlash }) {
                       className="btn btn-green btn-sm"
                       onClick={() => openCategory(cat.id)}
                       disabled={session?.status === "completed"}
-                      title={
-                        session?.status === "completed"
-                          ? "Catégorie déjà terminée"
-                          : ""
-                      }
                     >
                       🟢 Ouvrir
                     </button>
                   )}
-
                   {hasSession && (
                     <>
                       <button
@@ -633,27 +592,6 @@ function DeliberationTab({ showFlash }) {
                     </>
                   )}
                 </div>
-
-                {hasSession && (
-                  <div
-                    style={{
-                      padding: ".5rem 1rem",
-                      background: "var(--sand-dark)",
-                      fontSize: ".7rem",
-                      color: "var(--ink-muted)",
-                      borderTop: "1px solid var(--sand-border)",
-                    }}
-                  >
-                    <span>
-                      ℹ️ La suppression d'une session efface toutes les
-                      soumissions et notes,{" "}
-                    </span>
-                    <strong>
-                      mais les photos restent dans la banque des participants
-                    </strong>
-                    <span> pour une nouvelle soumission.</span>
-                  </div>
-                )}
               </div>
             );
           })}
@@ -686,9 +624,7 @@ function AdminJuryNotation({ showFlash, sessions }) {
     const open = sessions.find((s) => s.status === "open");
     if (open) {
       setActiveSession(open);
-      if (open.current_photo?.url) {
-        setCurrentPhoto(open.current_photo);
-      }
+      if (open.current_photo?.url) setCurrentPhoto(open.current_photo);
     }
   }, [sessions]);
 
@@ -722,7 +658,6 @@ function AdminJuryNotation({ showFlash, sessions }) {
         map[s.criterion_id] = s.value;
       });
       setScores(map);
-
       const vals = await api.get(
         `/deliberations/${activeSession.category_id}/validations`,
       );
@@ -780,9 +715,7 @@ function AdminJuryNotation({ showFlash, sessions }) {
   if (!activeSession)
     return (
       <div className="info-banner banner-amber">
-        <span className="banner-icon">⏸️</span>
-        Aucune catégorie ouverte. Utilisez le panneau ci-dessus pour démarrer
-        une délibération.
+        <span className="banner-icon">⏸️</span>Aucune catégorie ouverte.
       </div>
     );
 
@@ -884,7 +817,6 @@ function CategoriesTab({ showFlash }) {
   const [cats, setCats] = useState([]);
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState({ name: "", description: "", sortOrder: 0 });
-
   const load = () =>
     api
       .get("/admin/categories")
@@ -928,22 +860,13 @@ function CategoriesTab({ showFlash }) {
       .catch((e) => showFlash("❌ " + e.message));
   }
 
-  /* ── Réinitialiser une catégorie ── */
   async function handleResetCategory(cat) {
-    const msg =
-      `⚠️ RÉINITIALISATION DE LA CATÉGORIE ⚠️\n\n` +
-      `Catégorie : ${cat.name}\n\n` +
-      `Cette action va :\n` +
-      `• Supprimer TOUTES les soumissions dans cette catégorie\n` +
-      `• Remettre à zéro les photos (elles redeviennent disponibles)\n` +
-      `• Supprimer toutes les notes et validations\n` +
-      `• Supprimer les coups de cœur\n` +
-      `• Supprimer les résultats calculés\n\n` +
-      `Les photos restent dans la banque des participants.\n\n` +
-      `Confirmer la réinitialisation ?`;
-
-    if (!confirm(msg)) return;
-
+    if (
+      !confirm(
+        `⚠️ Réinitialiser "${cat.name}" ? Cette action supprime toutes les soumissions.`,
+      )
+    )
+      return;
     try {
       await api.post(`/admin/categories/${cat.id}/reset`);
       showFlash(`🔄 Catégorie "${cat.name}" réinitialisée`);
@@ -1023,11 +946,9 @@ function CategoriesTab({ showFlash }) {
               <button
                 className="btn btn-sm btn-warning"
                 onClick={() => handleResetCategory(cat)}
-                title="Réinitialiser toutes les soumissions"
                 style={{
                   background: "var(--amber-light)",
                   color: "var(--amber)",
-                  borderColor: "var(--amber-mid)",
                 }}
               >
                 🔄
@@ -1042,7 +963,6 @@ function CategoriesTab({ showFlash }) {
           </div>
         ))}
       </div>
-
       {modal && (
         <div className="modal-backdrop" onClick={() => setModal(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -1118,7 +1038,6 @@ function CriteriaTab({ showFlash }) {
     maxPoints: 5,
     weight: 1,
   });
-
   const load = () =>
     api
       .get("/admin/criteria")
@@ -1227,7 +1146,6 @@ function CriteriaTab({ showFlash }) {
           </div>
         ))}
       </div>
-
       {modal && (
         <div className="modal-backdrop" onClick={() => setModal(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -1329,7 +1247,7 @@ function CriteriaTab({ showFlash }) {
 }
 
 /* ════════════════════════════════════════════════════════
-   ADMIN RESULTS TAB
+   ADMIN RESULTS TAB - CORRIGÉ
 ════════════════════════════════════════════════════════ */
 function AdminResultsTab({ showFlash, user }) {
   const [results, setResults] = useState(null);
@@ -1340,65 +1258,23 @@ function AdminResultsTab({ showFlash, user }) {
     hasResults: false,
   });
   const [computing, setComputing] = useState(false);
-  const [selectingEyePrize, setSelectingEyePrize] = useState(false);
+  const [finalizingEyePrize, setFinalizingEyePrize] = useState(false);
   const [palmaresData, setPalmaresData] = useState(null);
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [statusData, resultsData, palmaresData] = await Promise.all([
+      const [statusData, palmaresData] = await Promise.all([
         api.get("/results/status"),
-        api.get("/results").catch(() => null),
         api.get("/results/palmares").catch(() => null),
       ]);
       setStatus(statusData);
-      setResults(resultsData);
       setPalmaresData(palmaresData);
     } catch (e) {
       console.error("Erreur chargement résultats:", e);
       showFlash("❌ " + e.message);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleFinalizeEyePrize = async () => {
-    setFinalizingEyePrize(true);
-    try {
-      const result = await api.post("/results/eye-prize/finalize");
-      if (result.hasTie) {
-        showFlash(
-          "⚠️ Égalité détectée ! Utilisez 'Résoudre l'égalité' pour choisir le gagnant.",
-        );
-      } else {
-        showFlash(
-          `✅ Prix de l'œil finalisé ! La photo gagnante a reçu ${result.totalVotes} vote(s).`,
-        );
-      }
-      await loadData();
-    } catch (e) {
-      if (e.message.includes("Égalité")) {
-        showFlash(
-          "⚠️ Égalité détectée ! Cliquez sur 'Résoudre l'égalité' pour départager.",
-        );
-      } else {
-        showFlash("❌ " + e.message);
-      }
-    } finally {
-      setFinalizingEyePrize(false);
-    }
-  };
-
-  const handleResolveEyePrizeTie = async (winningSubmissionId) => {
-    if (!confirm("Confirmer cette photo comme gagnante du Prix de l'œil ?"))
-      return;
-    try {
-      await api.post("/results/eye-prize/resolve-tie", { winningSubmissionId });
-      showFlash("✅ Égalité résolue - Prix de l'œil finalisé !");
-      await loadData();
-      setSelectingEyePrize(false);
-    } catch (e) {
-      showFlash("❌ " + e.message);
     }
   };
 
@@ -1436,27 +1312,11 @@ function AdminResultsTab({ showFlash, user }) {
   };
 
   const handleUnpublishAll = async () => {
-    if (
-      !confirm(
-        "⚠️ Masquer tous les résultats ? Jurés et participants n'y auront plus accès.",
-      )
-    )
-      return;
+    if (!confirm("⚠️ Masquer tous les résultats ?")) return;
     try {
       await api.post("/results/unpublish");
       showFlash("🔒 Tous les résultats sont masqués");
       await loadData();
-    } catch (e) {
-      showFlash("❌ " + e.message);
-    }
-  };
-
-  const handleSelectEyePrize = async (submissionId) => {
-    try {
-      await api.post("/results/eye-prize/finalize", { submissionId });
-      showFlash("✅ Prix de l'œil attribué !");
-      await loadData();
-      setSelectingEyePrize(false);
     } catch (e) {
       showFlash("❌ " + e.message);
     }
@@ -1474,8 +1334,7 @@ function AdminResultsTab({ showFlash, user }) {
     );
   }
 
-  const hasResults = status.hasResults || (results && results.length > 0);
-  const isAdmin = user?.role === "admin";
+  const hasResults = status.hasResults;
 
   return (
     <div>
@@ -1483,7 +1342,6 @@ function AdminResultsTab({ showFlash, user }) {
         <div className="section-header">
           <div className="section-title">🏆 Gestion des résultats</div>
         </div>
-
         <div
           className="info-banner banner-amber"
           style={{ marginBottom: "1.25rem" }}
@@ -1495,7 +1353,6 @@ function AdminResultsTab({ showFlash, user }) {
           </span>
         </div>
 
-        {/* Étape 1 */}
         <div style={{ marginBottom: "1.25rem" }}>
           <div
             style={{
@@ -1517,7 +1374,6 @@ function AdminResultsTab({ showFlash, user }) {
           </button>
         </div>
 
-        {/* Étapes 2 & 3 */}
         <div
           style={{
             fontSize: ".75rem",
@@ -1548,7 +1404,6 @@ function AdminResultsTab({ showFlash, user }) {
               ? "✅ Jurés ont accès"
               : "👨‍⚖️ Publier aux jurés"}
           </button>
-
           <button
             className={`btn ${status.isPublished ? "btn-success" : "btn-green"}`}
             onClick={handlePublishToParticipants}
@@ -1559,7 +1414,6 @@ function AdminResultsTab({ showFlash, user }) {
               ? "✅ Participants ont accès"
               : "🎉 Publier aux participants"}
           </button>
-
           <button
             className="btn btn-danger"
             onClick={handleUnpublishAll}
@@ -1570,7 +1424,6 @@ function AdminResultsTab({ showFlash, user }) {
           </button>
         </div>
 
-        {/* Statuts */}
         <div
           style={{
             display: "flex",
@@ -1599,35 +1452,22 @@ function AdminResultsTab({ showFlash, user }) {
 
       {!hasResults ? (
         <div className="info-banner banner-amber">
-          <span className="banner-icon">📊</span>
-          Aucun résultat calculé. Cliquez sur "Calculer les résultats"
-          ci-dessus.
+          <span className="banner-icon">📊</span>Aucun résultat calculé. Cliquez
+          sur "Calculer les résultats".
         </div>
       ) : palmaresData ? (
         <AdminPalmaresDisplay
           data={palmaresData}
           showFlash={showFlash}
-          isAdmin={isAdmin}
-          selectingEyePrize={selectingEyePrize}
-          setSelectingEyePrize={setSelectingEyePrize}
-          onSelectEyePrize={handleSelectEyePrize}
+          isAdmin={true}
         />
       ) : null}
     </div>
   );
 }
 
-/* ── Composant d'affichage du palmarès pour admin ── */
-function AdminPalmaresDisplay({
-  data,
-  showFlash,
-  isAdmin,
-  selectingEyePrize,
-  setSelectingEyePrize,
-  onSelectEyePrize,
-}) {
-  const [eyePrizeMode, setEyePrizeMode] = useState(false);
-
+/* ── Composant d'affichage du palmarès pour admin (SANS bouton attribuer) ── */
+function AdminPalmaresDisplay({ data, showFlash, isAdmin }) {
   if (!data || !data.generalRanking?.length) {
     return (
       <div className="empty-state">
@@ -1638,56 +1478,13 @@ function AdminPalmaresDisplay({
     );
   }
 
-  {
-    isAdmin && !data.eyePrize && (
-      <div
-        style={{
-          display: "flex",
-          gap: "1rem",
-          marginBottom: "1rem",
-          flexWrap: "wrap",
-        }}
-      >
-        <button
-          className="btn btn-primary"
-          onClick={() => setEyePrizeMode(true)}
-          disabled={data.eyePrizeVotes?.length === 0}
-        >
-          👁️ Lancer le vote
-        </button>
-        {data.eyePrizeVotes?.length > 0 && (
-          <>
-            <button
-              className="btn btn-success"
-              onClick={() => {
-                // Finaliser automatiquement
-                handleFinalizeEyePrize();
-              }}
-              disabled={finalizingEyePrize}
-            >
-              🏆 Finaliser le vote
-            </button>
-            {data.eyePrizeHasTie && (
-              <button
-                className="btn btn-warning"
-                onClick={() => setSelectingEyePrize(true)}
-              >
-                ⚠️ Résoudre l'égalité
-              </button>
-            )}
-          </>
-        )}
-      </div>
-    );
-  }
-
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
       {data.bestPhotographer && (
         <div className="section">
           <div className="section-header">
             <div className="section-title">
-              🏆 Photo d'Or — Meilleur Photographe du SAJ
+              🏆 Photo d'Or — Meilleur Photographe
             </div>
           </div>
           <div
@@ -1715,7 +1512,7 @@ function AdminPalmaresDisplay({
               }}
             >
               {data.bestPhotographer.total.toFixed(1)} points totaux ·{" "}
-              {data.bestPhotographer.finalists} victoire(s) par catégorie
+              {data.bestPhotographer.finalists} victoire(s)
             </div>
           </div>
         </div>
@@ -1784,8 +1581,6 @@ function AdminPalmaresDisplay({
             }, {}),
           ).map(([catId, results]) => {
             const winner = results[0];
-            const categoryName =
-              winner.categories?.name || `Catégorie ${catId}`;
             return (
               <div key={catId} className="card">
                 <div
@@ -1796,7 +1591,7 @@ function AdminPalmaresDisplay({
                     color: "var(--ink-faint)",
                   }}
                 >
-                  {categoryName}
+                  {winner.categories?.name || `Catégorie ${catId}`}
                 </div>
                 <div
                   style={{
@@ -1826,7 +1621,6 @@ function AdminPalmaresDisplay({
         </div>
       </div>
 
-      {/* 4. Coup de cœur du jury - Version ADMIN avec détails */}
       <div className="section">
         <div className="section-header">
           <div className="section-title">❤️ Coup de cœur du jury</div>
@@ -1881,7 +1675,6 @@ function AdminPalmaresDisplay({
                     </div>
                   </div>
                 </div>
-                {/* Détail des jurés qui ont voté */}
                 {fav.jurors && fav.jurors.length > 0 && (
                   <div
                     style={{
@@ -1925,8 +1718,8 @@ function AdminPalmaresDisplay({
           </div>
         ) : (
           <div className="info-banner banner-amber">
-            <span className="banner-icon">⏳</span>
-            Aucun coup de cœur n'a encore été attribué.
+            <span className="banner-icon">⏳</span>Aucun coup de cœur n'a encore
+            été attribué.
           </div>
         )}
       </div>
@@ -1967,99 +1760,12 @@ function AdminPalmaresDisplay({
             <div style={{ fontSize: ".8rem", color: "var(--ink-muted)" }}>
               {data.eyePrize.submissions?.users &&
                 `par ${data.eyePrize.submissions.users.first_name} ${data.eyePrize.submissions.users.last_name}`}
-              {data.eyePrize.submissions?.categories?.name &&
-                ` · ${data.eyePrize.submissions.categories.name}`}
             </div>
           </div>
-        ) : isAdmin && eyePrizeMode ? (
-          <div className="panel">
-            <div
-              className="section-header"
-              style={{ padding: ".85rem 1rem 0" }}
-            >
-              <div className="section-title">
-                Sélectionner la photo gagnante
-              </div>
-              <button
-                className="btn btn-sm"
-                onClick={() => setEyePrizeMode(false)}
-              >
-                ✕
-              </button>
-            </div>
-            <div
-              className="photo-grid"
-              style={{
-                maxHeight: "400px",
-                overflowY: "auto",
-                padding: ".75rem",
-              }}
-            >
-              {(data.allSubmissions || []).map((sub) => (
-                <div
-                  key={sub.id}
-                  className="photo-item"
-                  onClick={() => onSelectEyePrize(sub.id)}
-                  style={{ cursor: "pointer" }}
-                >
-                  {sub.photoUrl ? (
-                    <img
-                      src={sub.photoUrl}
-                      alt=""
-                      style={{
-                        width: "100%",
-                        height: "100%",
-                        objectFit: "cover",
-                      }}
-                    />
-                  ) : (
-                    <div
-                      style={{
-                        width: "100%",
-                        height: "100%",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        background: "var(--sand-dark)",
-                      }}
-                    >
-                      📷
-                    </div>
-                  )}
-                  <div
-                    className="photo-overlay"
-                    style={{
-                      opacity: 1,
-                      background:
-                        "linear-gradient(to top, rgba(0,0,0,.7) 0%, transparent 70%)",
-                    }}
-                  >
-                    <div
-                      style={{
-                        color: "#fff",
-                        fontSize: ".7rem",
-                        textAlign: "center",
-                        width: "100%",
-                      }}
-                    >
-                      {sub.anonymous_id}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : isAdmin ? (
-          <button
-            className="btn btn-primary btn-full"
-            onClick={() => setEyePrizeMode(true)}
-          >
-            👁️ Attribuer le Prix de l'œil
-          </button>
         ) : (
           <div className="info-banner banner-amber">
-            <span className="banner-icon">⏳</span>
-            Le Prix de l'œil sera annoncé prochainement.
+            <span className="banner-icon">⏳</span>Allez dans l'onglet "Prix de
+            l'œil" pour gérer le vote.
           </div>
         )}
       </div>
@@ -2078,23 +1784,6 @@ function AuditTab() {
       .then(setLogs)
       .catch(() => {});
   }, []);
-
-  const ACTION_COLORS = {
-    REGISTER: "badge-green",
-    LOGIN: "badge-green",
-    PHOTO_UPLOAD: "badge-amber",
-    PHOTO_SUBMIT: "badge-amber",
-    DELIB_OPEN: "badge-green",
-    DELIB_CLOSE: "badge-red",
-    DELIB_FORCE_NEXT: "badge-red",
-    RESULTS_PUBLISH: "badge-green",
-    RESULTS_UNPUBLISH: "badge-red",
-    ADMIN_DELETE_USER: "badge-red",
-    ADMIN_DELETE_PHOTO: "badge-red",
-    DELIB_SESSION_DELETED: "badge-red",
-    CATEGORY_RESET: "badge-amber",
-  };
-
   return (
     <div className="section">
       <div className="section-header">
@@ -2121,10 +1810,7 @@ function AuditTab() {
                       whiteSpace: "nowrap",
                     }}
                   >
-                    {new Date(log.created_at).toLocaleString("fr-FR", {
-                      dateStyle: "short",
-                      timeStyle: "short",
-                    })}
+                    {new Date(log.created_at).toLocaleString("fr-FR")}
                   </td>
                   <td style={{ fontSize: ".82rem" }}>
                     {log.users
@@ -2133,7 +1819,7 @@ function AuditTab() {
                   </td>
                   <td>
                     <span
-                      className={`badge ${ACTION_COLORS[log.action] || "badge-ink"}`}
+                      className={`badge badge-ink`}
                       style={{ fontSize: ".68rem" }}
                     >
                       {log.action}
@@ -2153,8 +1839,9 @@ function AuditTab() {
   );
 }
 
-// frontend/src/pages/AdminPage.jsx - Ajoutez ce composant
-
+/* ════════════════════════════════════════════════════════
+   EYE PRIZE MANAGEMENT
+════════════════════════════════════════════════════════ */
 function EyePrizeManagement({ showFlash }) {
   const [loading, setLoading] = useState(false);
   const [resetting, setResetting] = useState(false);
@@ -2254,8 +1941,7 @@ function EyePrizeManagement({ showFlash }) {
   if (!data) {
     return (
       <div className="info-banner banner-amber">
-        <span className="banner-icon">👁️</span>
-        Aucune donnée disponible
+        <span className="banner-icon">👁️</span>Aucune donnée disponible
       </div>
     );
   }
@@ -2444,7 +2130,7 @@ function EyePrizeManagement({ showFlash }) {
         </div>
       )}
 
-      {/* Modal de confirmation réinitialisation totale */}
+      {/* Modals */}
       {showResetConfirm && (
         <div
           className="modal-backdrop"
@@ -2489,7 +2175,6 @@ function EyePrizeManagement({ showFlash }) {
         </div>
       )}
 
-      {/* Modal de confirmation réinitialisation d'un juré */}
       {showJurorResetConfirm && (
         <div
           className="modal-backdrop"
