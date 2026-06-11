@@ -24,6 +24,7 @@ export default function AdminPage() {
     { id: "users", label: "Utilisateurs", icon: "👥" },
     { id: "categories", label: "Catégories", icon: "🗂️" },
     { id: "criteria", label: "Critères", icon: "📐" },
+    { id: "eye-prize", label: "Prix de l'œil", icon: "👁️" },
     { id: "results", label: "Résultats", icon: "🏆" },
     { id: "audit", label: "Audit", icon: "📋" },
   ];
@@ -102,6 +103,9 @@ export default function AdminPage() {
               <AdminResultsTab showFlash={showFlash} user={user} />
             )}
             {tab === "audit" && <AuditTab />}
+            {tab === "eye-prize" && (
+              <EyePrizeManagement showFlash={showFlash} />
+            )}
           </div>
         </div>
       </div>
@@ -2145,6 +2149,395 @@ function AuditTab() {
           </table>
         </div>
       </div>
+    </div>
+  );
+}
+
+// frontend/src/pages/AdminPage.jsx - Nouveau composant
+
+function EyePrizeManagement({ showFlash }) {
+  const [loading, setLoading] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [resettingJuror, setResettingJuror] = useState(null);
+  const [data, setData] = useState(null);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [showJurorResetConfirm, setShowJurorResetConfirm] = useState(null);
+  const [finalizing, setFinalizing] = useState(false);
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const result = await api.get("/results/eye-prize/admin-details");
+      setData(result);
+    } catch (e) {
+      showFlash("❌ " + e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+    const interval = setInterval(loadData, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleResetAll = async () => {
+    setResetting(true);
+    try {
+      await api.post("/results/eye-prize/reset-all");
+      showFlash("✅ Tous les votes ont été réinitialisés !");
+      await loadData();
+      setShowResetConfirm(false);
+    } catch (e) {
+      showFlash("❌ " + e.message);
+    } finally {
+      setResetting(false);
+    }
+  };
+
+  const handleResetJuror = async (jurorId, jurorName) => {
+    setResettingJuror(jurorId);
+    try {
+      await api.post(`/results/eye-prize/reset-juror/${jurorId}`);
+      showFlash(`✅ Vote de ${jurorName} réinitialisé`);
+      await loadData();
+      setShowJurorResetConfirm(null);
+    } catch (e) {
+      showFlash("❌ " + e.message);
+    } finally {
+      setResettingJuror(null);
+    }
+  };
+
+  const handleFinalize = async () => {
+    setFinalizing(true);
+    try {
+      const result = await api.post("/results/eye-prize/finalize");
+      showFlash(
+        `✅ Prix de l'œil finalisé ! La photo gagnante a reçu ${result.totalVotes} vote(s).`,
+      );
+      await loadData();
+    } catch (e) {
+      if (e.message.includes("Égalité")) {
+        showFlash(
+          "⚠️ Égalité détectée ! Utilisez 'Résoudre l'égalité' pour choisir le gagnant.",
+        );
+      } else {
+        showFlash("❌ " + e.message);
+      }
+    } finally {
+      setFinalizing(false);
+    }
+  };
+
+  const handleResolveTie = async (winningSubmissionId) => {
+    if (!confirm("Confirmer cette photo comme gagnante ?")) return;
+    try {
+      await api.post("/results/eye-prize/resolve-tie", { winningSubmissionId });
+      showFlash("✅ Égalité résolue - Prix de l'œil finalisé !");
+      await loadData();
+    } catch (e) {
+      showFlash("❌ " + e.message);
+    }
+  };
+
+  if (loading && !data) {
+    return (
+      <div style={{ textAlign: "center", padding: "2rem" }}>
+        <span className="spinner spinner-lg" />
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className="info-banner banner-amber">
+        <span className="banner-icon">👁️</span>
+        Aucune donnée disponible
+      </div>
+    );
+  }
+
+  const isFinalized = data.finalResult?.is_finalized === true;
+
+  return (
+    <div className="section">
+      <div className="section-header">
+        <div className="section-title">👁️ Gestion du Prix de l'œil</div>
+      </div>
+
+      <div
+        className="info-banner banner-amber"
+        style={{ marginBottom: "1rem" }}
+      >
+        <span className="banner-icon">📊</span>
+        <div>
+          <strong>État des votes :</strong>
+          <br />• {data.totalJurors} juré(s) au total
+          <br />• {data.totalVotes} vote(s) enregistré(s)
+          <br />• {isFinalized ? "✅ Vote finalisé" : "⏳ Vote en cours"}
+        </div>
+      </div>
+
+      {/* Classement actuel */}
+      {data.photoVotes.length > 0 && (
+        <div style={{ marginBottom: "1.5rem" }}>
+          <div style={{ fontWeight: 600, marginBottom: ".5rem" }}>
+            📊 Classement actuel :
+          </div>
+          <div
+            className="photo-grid"
+            style={{
+              gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+            }}
+          >
+            {data.photoVotes.map((photo, idx) => (
+              <div
+                key={idx}
+                className="card"
+                style={{ textAlign: "center", padding: ".75rem" }}
+              >
+                {photo.photoUrl ? (
+                  <img
+                    src={photo.photoUrl}
+                    alt=""
+                    style={{
+                      width: "100%",
+                      height: "120px",
+                      objectFit: "cover",
+                      borderRadius: "8px",
+                    }}
+                  />
+                ) : (
+                  <div
+                    style={{
+                      width: "100%",
+                      height: "120px",
+                      background: "var(--sand-dark)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      borderRadius: "8px",
+                    }}
+                  >
+                    📷
+                  </div>
+                )}
+                <div style={{ fontWeight: 600, marginTop: ".5rem" }}>
+                  {photo.anonymousId}
+                </div>
+                <div style={{ fontSize: ".75rem", color: "var(--ink-muted)" }}>
+                  {photo.categoryName}
+                </div>
+                <div
+                  className="badge badge-amber"
+                  style={{ marginTop: ".5rem" }}
+                >
+                  {photo.votes} voix
+                </div>
+                {isFinalized &&
+                  data.finalResult?.submission_id === photo.submissionId && (
+                    <div
+                      className="badge badge-green"
+                      style={{ marginTop: ".5rem" }}
+                    >
+                      🏆 GAGNANTE
+                    </div>
+                  )}
+                {!isFinalized &&
+                  data.photoVotes[0]?.votes === photo.votes &&
+                  data.photoVotes.length > 1 &&
+                  data.photoVotes[0]?.votes === data.photoVotes[1]?.votes && (
+                    <button
+                      className="btn btn-sm btn-warning"
+                      style={{ marginTop: ".5rem" }}
+                      onClick={() => handleResolveTie(photo.submissionId)}
+                    >
+                      Choisir comme gagnante
+                    </button>
+                  )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Liste des jurés */}
+      <div style={{ marginBottom: "1.5rem" }}>
+        <div style={{ fontWeight: 600, marginBottom: ".5rem" }}>
+          👨‍⚖️ Votes par juré :
+        </div>
+        <div className="panel">
+          {data.jurors.map((juror) => (
+            <div
+              key={juror.jurorId}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: ".75rem 1rem",
+                borderBottom: "1px solid var(--sand-border)",
+              }}
+            >
+              <div>
+                <span style={{ fontWeight: 500 }}>{juror.jurorName}</span>
+                {juror.hasVoted ? (
+                  <span
+                    className="badge badge-green"
+                    style={{ marginLeft: ".5rem", fontSize: ".7rem" }}
+                  >
+                    ✅ A voté pour {juror.vote?.submissions?.anonymous_id}
+                  </span>
+                ) : (
+                  <span
+                    className="badge badge-red"
+                    style={{ marginLeft: ".5rem", fontSize: ".7rem" }}
+                  >
+                    ⏳ Pas encore voté
+                  </span>
+                )}
+              </div>
+              <button
+                className="btn btn-sm btn-danger"
+                onClick={() => setShowJurorResetConfirm(juror)}
+                disabled={!juror.hasVoted || isFinalized}
+                style={{ opacity: !juror.hasVoted || isFinalized ? 0.5 : 1 }}
+              >
+                🔄 Réinitialiser son vote
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Boutons d'action */}
+      {!isFinalized ? (
+        <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
+          <button
+            className="btn btn-primary"
+            onClick={handleFinalize}
+            disabled={data.totalVotes === 0 || finalizing}
+          >
+            🏆 Finaliser le vote
+          </button>
+          <button
+            className="btn btn-danger"
+            onClick={() => setShowResetConfirm(true)}
+            disabled={finalizing}
+          >
+            🔄 Réinitialiser TOUS les votes
+          </button>
+        </div>
+      ) : (
+        <div className="info-banner banner-green">
+          <span className="banner-icon">🏆</span>
+          <strong>Prix de l'œil finalisé !</strong>
+          <button
+            className="btn btn-sm btn-danger"
+            onClick={() => setShowResetConfirm(true)}
+            style={{ marginLeft: "1rem" }}
+          >
+            🔄 Réinitialiser pour un nouveau vote
+          </button>
+        </div>
+      )}
+
+      {/* Modals de confirmation */}
+      {showResetConfirm && (
+        <div
+          className="modal-backdrop"
+          onClick={() => setShowResetConfirm(false)}
+        >
+          <div
+            className="modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: "450px" }}
+          >
+            <div className="modal-header">
+              <h3>⚠️ Réinitialiser tous les votes</h3>
+              <button
+                className="btn btn-sm"
+                onClick={() => setShowResetConfirm(false)}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="modal-body">
+              <p>Cette action va supprimer TOUS les votes du Prix de l'œil.</p>
+              <p style={{ color: "var(--red)", fontWeight: 600 }}>
+                Action irréversible !
+              </p>
+            </div>
+            <div className="modal-footer">
+              <button
+                className="btn"
+                onClick={() => setShowResetConfirm(false)}
+              >
+                Annuler
+              </button>
+              <button
+                className="btn btn-danger"
+                onClick={handleResetAll}
+                disabled={resetting}
+              >
+                {resetting ? "⏳" : "✅ Oui, tout réinitialiser"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showJurorResetConfirm && (
+        <div
+          className="modal-backdrop"
+          onClick={() => setShowJurorResetConfirm(null)}
+        >
+          <div
+            className="modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: "450px" }}
+          >
+            <div className="modal-header">
+              <h3>⚠️ Réinitialiser le vote</h3>
+              <button
+                className="btn btn-sm"
+                onClick={() => setShowJurorResetConfirm(null)}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="modal-body">
+              <p>
+                Réinitialiser le vote de{" "}
+                <strong>{showJurorResetConfirm.jurorName}</strong> ?
+              </p>
+            </div>
+            <div className="modal-footer">
+              <button
+                className="btn"
+                onClick={() => setShowJurorResetConfirm(null)}
+              >
+                Annuler
+              </button>
+              <button
+                className="btn btn-danger"
+                onClick={() =>
+                  handleResetJuror(
+                    showJurorResetConfirm.jurorId,
+                    showJurorResetConfirm.jurorName,
+                  )
+                }
+                disabled={resettingJuror === showJurorResetConfirm.jurorId}
+              >
+                {resettingJuror === showJurorResetConfirm.jurorId
+                  ? "⏳"
+                  : "✅ Réinitialiser"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

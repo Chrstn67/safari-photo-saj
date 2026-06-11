@@ -549,7 +549,9 @@ function PalmaresView({ showFlash, user }) {
     setVoting(true);
     try {
       await api.post("/results/eye-prize/vote", { submissionId });
-      showFlash("✅ Vote enregistré !");
+      showFlash(
+        eyePrizeData?.myVote ? "✅ Vote modifié !" : "✅ Vote enregistré !",
+      );
       await loadData();
       setShowVoteModal(false);
       setSelectedPhoto(null);
@@ -705,7 +707,7 @@ function PalmaresView({ showFlash, user }) {
         </div>
       </div>
 
-      {/* 4. COUP DE CŒUR DU JURY - AVEC PHOTOS ET NOMS */}
+      {/* 4. Coup de cœur du jury */}
       <div className="section">
         <div className="section-header">
           <div className="section-title">❤️ Coup de cœur du jury</div>
@@ -751,20 +753,10 @@ function PalmaresView({ showFlash, user }) {
                     📷
                   </div>
                 )}
-                <div style={{ fontWeight: 700, fontSize: "1rem" }}>
-                  {fav.author || fav.anonymousId}
+                <div style={{ fontWeight: 700 }}>{fav.anonymousId}</div>
+                <div style={{ fontSize: ".75rem", color: "var(--ink-muted)" }}>
+                  {fav.categoryName}
                 </div>
-                {fav.categoryName && (
-                  <div
-                    style={{
-                      fontSize: ".75rem",
-                      color: "var(--ink-muted)",
-                      marginTop: ".25rem",
-                    }}
-                  >
-                    {fav.categoryName}
-                  </div>
-                )}
                 <div
                   className="badge badge-amber"
                   style={{ marginTop: ".75rem" }}
@@ -782,7 +774,7 @@ function PalmaresView({ showFlash, user }) {
         )}
       </div>
 
-      {/* 5. PRIX DE L'ŒIL - Chaque juré vote parmi TOUTES les photos */}
+      {/* 5. PRIX DE L'ŒIL */}
       <div className="section">
         <div className="section-header">
           <div className="section-title">
@@ -815,17 +807,9 @@ function PalmaresView({ showFlash, user }) {
                 color: "var(--amber)",
               }}
             >
-              {finalResult.submissions?.users
-                ? `${finalResult.submissions.users.first_name} ${finalResult.submissions.users.last_name}`
-                : finalResult.submissions?.anonymous_id}
+              {finalResult.submissions?.anonymous_id}
             </div>
-            <div
-              style={{
-                fontSize: ".8rem",
-                color: "var(--ink-muted)",
-                marginTop: ".25rem",
-              }}
-            >
+            <div style={{ fontSize: ".8rem", color: "var(--ink-muted)" }}>
               {finalResult.submissions?.categories?.name &&
                 `Catégorie : ${finalResult.submissions.categories.name}`}
             </div>
@@ -835,7 +819,6 @@ function PalmaresView({ showFlash, user }) {
           </div>
         ) : (
           <>
-            {/* Message d'égalité */}
             {hasTie && (
               <div
                 className="info-banner banner-red"
@@ -850,14 +833,12 @@ function PalmaresView({ showFlash, user }) {
                   <strong>Égalité détectée !</strong>
                   <p style={{ margin: "0.25rem 0 0" }}>
                     {tiedPhotos.length} photos sont à égalité avec{" "}
-                    {tiedPhotos[0]?.votes} voix chacune. L'administrateur va
-                    départager.
+                    {tiedPhotos[0]?.votes} voix chacune.
                   </p>
                 </div>
               </div>
             )}
 
-            {/* Résumé des votes */}
             {voteCounts.length > 0 && (
               <div className="panel" style={{ marginBottom: "1rem" }}>
                 <div
@@ -916,18 +897,12 @@ function PalmaresView({ showFlash, user }) {
                           📷
                         </div>
                       )}
-                      <div
-                        style={{
-                          fontSize: ".75rem",
-                          fontWeight: 600,
-                          marginTop: ".5rem",
-                        }}
-                      >
-                        {vote.author || vote.anonymousId}
+                      <div style={{ fontWeight: 600, marginTop: ".5rem" }}>
+                        {vote.anonymousId}
                       </div>
                       <span
                         className="badge badge-amber"
-                        style={{ fontSize: ".7rem", marginTop: ".25rem" }}
+                        style={{ marginTop: ".25rem" }}
                       >
                         {vote.votes} voix
                       </span>
@@ -937,7 +912,6 @@ function PalmaresView({ showFlash, user }) {
               </div>
             )}
 
-            {/* Message vote */}
             <div
               className="info-banner banner-amber"
               style={{ marginBottom: "1rem" }}
@@ -946,11 +920,8 @@ function PalmaresView({ showFlash, user }) {
               {hasVoted ? (
                 <span>
                   Vous avez voté pour{" "}
-                  <strong>
-                    {eyePrizeData?.myVote?.author ||
-                      eyePrizeData?.myVote?.anonymousId}
-                  </strong>
-                  . Vous pouvez modifier votre vote.
+                  <strong>{eyePrizeData?.myVote?.anonymousId}</strong>. Vous
+                  pouvez modifier votre vote.
                 </span>
               ) : (
                 <span>
@@ -960,7 +931,6 @@ function PalmaresView({ showFlash, user }) {
               )}
             </div>
 
-            {/* Bouton voter */}
             <button
               className="btn btn-primary btn-full"
               onClick={() => setShowVoteModal(true)}
@@ -977,7 +947,7 @@ function PalmaresView({ showFlash, user }) {
         )}
       </div>
 
-      {/* MODAL DE VOTE - TOUTES LES PHOTOS */}
+      {/* MODAL DE VOTE */}
       {showVoteModal && (
         <div className="modal-backdrop" onClick={() => setShowVoteModal(false)}>
           <div
@@ -1051,6 +1021,7 @@ function PalmaresView({ showFlash, user }) {
                           color: "#fff",
                           fontSize: ".7rem",
                           textAlign: "center",
+                          width: "100%",
                         }}
                       >
                         {sub.anonymous_id}
@@ -1078,7 +1049,7 @@ function PalmaresView({ showFlash, user }) {
         </div>
       )}
 
-      {/* MODAL RÉSULTATS DES VOTES */}
+      {/* MODAL RÉSULTATS */}
       {showResultsModal && (
         <div
           className="modal-backdrop"
@@ -1143,18 +1114,16 @@ function PalmaresView({ showFlash, user }) {
                       )}
                       <div style={{ flex: 1 }}>
                         <div style={{ fontWeight: 700 }}>
-                          {vote.author || vote.anonymousId}
+                          {vote.anonymousId}
                         </div>
-                        {vote.categoryName && (
-                          <div
-                            style={{
-                              fontSize: ".7rem",
-                              color: "var(--ink-muted)",
-                            }}
-                          >
-                            {vote.categoryName}
-                          </div>
-                        )}
+                        <div
+                          style={{
+                            fontSize: ".7rem",
+                            color: "var(--ink-muted)",
+                          }}
+                        >
+                          {vote.categoryName}
+                        </div>
                       </div>
                       <div>
                         <span
