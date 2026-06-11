@@ -29,6 +29,11 @@ export default function JuryPage() {
     setTimeout(() => setFlash(""), 2500);
   }
 
+  function handleTabChange(id) {
+    setTab(id);
+    setShowMobileMenu(false);
+  }
+
   const loadSessions = useCallback(async () => {
     try {
       const [sess, crit] = await Promise.all([
@@ -213,20 +218,6 @@ export default function JuryPage() {
           <>
             <span className="topbar-user">{user?.firstName}</span>
             <button
-              className="btn btn-sm menu-toggle"
-              style={{
-                borderColor: "rgba(255,255,255,.25)",
-                color: "var(--sand)",
-                background: "transparent",
-                display: "flex",
-                alignItems: "center",
-                gap: "4px",
-              }}
-              onClick={() => setShowMobileMenu(!showMobileMenu)}
-            >
-              ☰ Menu
-            </button>
-            <button
               className="btn btn-sm"
               style={{
                 borderColor: "rgba(255,255,255,.25)",
@@ -241,7 +232,6 @@ export default function JuryPage() {
         }
       />
 
-      {/* Menu latéral pour desktop + mobile overlay */}
       <div className={`app-layout ${showMobileMenu ? "mobile-menu-open" : ""}`}>
         <div className="side-panel">
           <nav className="side-nav">
@@ -249,10 +239,7 @@ export default function JuryPage() {
               <button
                 key={t.id}
                 className={`side-tab${tab === t.id ? " active" : ""}`}
-                onClick={() => {
-                  setTab(t.id);
-                  setShowMobileMenu(false);
-                }}
+                onClick={() => handleTabChange(t.id)}
               >
                 <span className="tab-icon">{t.icon}</span> {t.label}
               </button>
@@ -456,18 +443,30 @@ export default function JuryPage() {
         </div>
       </div>
 
-      {/* Mobile bottom nav - caché en desktop via CSS */}
+      {/* Bottom nav : burger à gauche + onglets */}
       <nav className="bottom-nav">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            className={`bottom-tab${tab === t.id ? " active" : ""}`}
-            onClick={() => setTab(t.id)}
-          >
-            <span className="tab-icon">{t.icon}</span>
-            <span>{t.label}</span>
-          </button>
-        ))}
+        <button
+          className={`bottom-burger${showMobileMenu ? " active" : ""}`}
+          onClick={() => setShowMobileMenu(!showMobileMenu)}
+          aria-label="Menu"
+        >
+          <span style={{ fontSize: "1.2rem" }}>
+            {showMobileMenu ? "✕" : "☰"}
+          </span>
+          <span className="burger-label">Menu</span>
+        </button>
+        <div className="bottom-tabs">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              className={`bottom-tab${tab === t.id ? " active" : ""}`}
+              onClick={() => handleTabChange(t.id)}
+            >
+              <span className="tab-icon">{t.icon}</span>
+              <span>{t.label}</span>
+            </button>
+          ))}
+        </div>
       </nav>
 
       {flash && <div className="flash">{flash}</div>}
@@ -475,7 +474,7 @@ export default function JuryPage() {
   );
 }
 
-/* ── Composant Palmarès complet avec toutes les récompenses ── */
+/* ── Composant Palmarès ── */
 function PalmaresView({ showFlash, user }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -532,7 +531,6 @@ function PalmaresView({ showFlash, user }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-      {/* 1. Photo d'Or - Meilleur Photographe */}
       {data.bestPhotographer && (
         <div className="section">
           <div className="section-header">
@@ -571,7 +569,6 @@ function PalmaresView({ showFlash, user }) {
         </div>
       )}
 
-      {/* 2. Classement général */}
       <div className="section">
         <div className="section-header">
           <div className="section-title">📊 Classement général</div>
@@ -589,12 +586,27 @@ function PalmaresView({ showFlash, user }) {
               }}
             >
               <span
-                style={{ fontSize: i < 3 ? "1.5rem" : "1rem", width: "40px" }}
+                style={{
+                  fontSize: i < 3 ? "1.5rem" : "1rem",
+                  width: "40px",
+                  flexShrink: 0,
+                }}
               >
                 {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i + 1}.`}
               </span>
-              <span style={{ flex: 1, fontWeight: 600 }}>{p.name}</span>
-              <span className="badge badge-amber">
+              <span
+                style={{
+                  flex: 1,
+                  fontWeight: 600,
+                  minWidth: 0,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {p.name}
+              </span>
+              <span className="badge badge-amber" style={{ flexShrink: 0 }}>
                 {p.total?.toFixed(1)} pts
               </span>
             </div>
@@ -602,7 +614,6 @@ function PalmaresView({ showFlash, user }) {
         </div>
       </div>
 
-      {/* 3. Prix par catégorie */}
       <div className="section">
         <div className="section-header">
           <div className="section-title">🏅 Prix par catégorie</div>
@@ -660,7 +671,6 @@ function PalmaresView({ showFlash, user }) {
         </div>
       </div>
 
-      {/* 4. Coup de cœur du jury */}
       <div className="section">
         <div className="section-header">
           <div className="section-title">❤️ Coup de cœur du jury</div>
@@ -694,7 +704,6 @@ function PalmaresView({ showFlash, user }) {
         )}
       </div>
 
-      {/* 5. Prix de l'œil */}
       <div className="section">
         <div className="section-header">
           <div className="section-title">
@@ -725,7 +734,10 @@ function PalmaresView({ showFlash, user }) {
         ) : canSelectEyePrize ? (
           selectingEyePrize ? (
             <div className="panel">
-              <div className="section-header">
+              <div
+                className="section-header"
+                style={{ padding: ".85rem 1rem 0" }}
+              >
                 <div className="section-title">
                   Sélectionner la photo gagnante
                 </div>
@@ -738,7 +750,11 @@ function PalmaresView({ showFlash, user }) {
               </div>
               <div
                 className="photo-grid"
-                style={{ maxHeight: "400px", overflowY: "auto" }}
+                style={{
+                  maxHeight: "400px",
+                  overflowY: "auto",
+                  padding: ".75rem",
+                }}
               >
                 {(data.allSubmissions || []).map((sub) => (
                   <div

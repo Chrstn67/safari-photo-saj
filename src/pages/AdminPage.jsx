@@ -27,6 +27,12 @@ export default function AdminPage() {
     { id: "audit", label: "Audit", icon: "📋" },
   ];
 
+  // Ferme le menu si on clique sur un onglet
+  function handleTabChange(id) {
+    setTab(id);
+    setShowMobileMenu(false);
+  }
+
   return (
     <>
       <TopBar
@@ -38,20 +44,6 @@ export default function AdminPage() {
         right={
           <>
             <span className="topbar-user">{user?.firstName} (admin)</span>
-            <button
-              className="btn btn-sm menu-toggle"
-              style={{
-                borderColor: "rgba(255,255,255,.25)",
-                color: "var(--sand)",
-                background: "transparent",
-                display: "flex",
-                alignItems: "center",
-                gap: "4px",
-              }}
-              onClick={() => setShowMobileMenu(!showMobileMenu)}
-            >
-              ☰ Menu
-            </button>
             <button
               className="btn btn-sm"
               style={{
@@ -74,10 +66,7 @@ export default function AdminPage() {
               <button
                 key={t.id}
                 className={`side-tab${tab === t.id ? " active" : ""}`}
-                onClick={() => {
-                  setTab(t.id);
-                  setShowMobileMenu(false);
-                }}
+                onClick={() => handleTabChange(t.id)}
               >
                 <span className="tab-icon">{t.icon}</span> {t.label}
               </button>
@@ -102,17 +91,30 @@ export default function AdminPage() {
         </div>
       </div>
 
+      {/* Bottom nav mobile : burger à gauche + 5 onglets */}
       <nav className="bottom-nav">
-        {TABS.slice(0, 5).map((t) => (
-          <button
-            key={t.id}
-            className={`bottom-tab${tab === t.id ? " active" : ""}`}
-            onClick={() => setTab(t.id)}
-          >
-            <span className="tab-icon">{t.icon}</span>
-            <span style={{ fontSize: ".55rem" }}>{t.label.slice(0, 8)}</span>
-          </button>
-        ))}
+        <button
+          className={`bottom-burger${showMobileMenu ? " active" : ""}`}
+          onClick={() => setShowMobileMenu(!showMobileMenu)}
+          aria-label="Menu"
+        >
+          <span style={{ fontSize: "1.2rem" }}>
+            {showMobileMenu ? "✕" : "☰"}
+          </span>
+          <span className="burger-label">Menu</span>
+        </button>
+        <div className="bottom-tabs">
+          {TABS.slice(0, 5).map((t) => (
+            <button
+              key={t.id}
+              className={`bottom-tab${tab === t.id ? " active" : ""}`}
+              onClick={() => handleTabChange(t.id)}
+            >
+              <span className="tab-icon">{t.icon}</span>
+              <span>{t.label.slice(0, 8)}</span>
+            </button>
+          ))}
+        </div>
       </nav>
 
       {flash && <div className="flash">{flash}</div>}
@@ -772,7 +774,7 @@ function CategoriesTab({ showFlash }) {
               borderBottom: "1px solid var(--sand-border)",
             }}
           >
-            <div style={{ flex: 1 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 600, fontSize: ".88rem" }}>
                 {cat.name}
               </div>
@@ -784,10 +786,11 @@ function CategoriesTab({ showFlash }) {
             </div>
             <span
               className={`badge ${cat.is_active ? "badge-green" : "badge-red"}`}
+              style={{ flexShrink: 0 }}
             >
               {cat.is_active ? "Active" : "Inactive"}
             </span>
-            <div style={{ display: "flex", gap: ".3rem" }}>
+            <div style={{ display: "flex", gap: ".3rem", flexShrink: 0 }}>
               <button
                 className="btn btn-sm"
                 onClick={() => {
@@ -936,7 +939,7 @@ function CriteriaTab({ showFlash }) {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+          gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
           gap: ".75rem",
         }}
       >
@@ -1101,7 +1104,7 @@ function CriteriaTab({ showFlash }) {
 }
 
 /* ════════════════════════════════════════════════════════
-   ADMIN RESULTS TAB - Palmarès complet pour admin
+   ADMIN RESULTS TAB
 ════════════════════════════════════════════════════════ */
 function AdminResultsTab({ showFlash, user }) {
   const [results, setResults] = useState(null);
@@ -1211,7 +1214,6 @@ function AdminResultsTab({ showFlash, user }) {
 
   return (
     <div>
-      {/* SECTION GESTION */}
       <div className="section">
         <div className="section-header">
           <div className="section-title">🏆 Gestion des résultats</div>
@@ -1223,12 +1225,12 @@ function AdminResultsTab({ showFlash, user }) {
         >
           <span className="banner-icon">📋</span>
           <span>
-            Ordre : <strong>1.</strong> Calculer les résultats →{" "}
-            <strong>2.</strong> Publier aux jurés → <strong>3.</strong> Publier
-            aux participants
+            Ordre : <strong>1.</strong> Calculer → <strong>2.</strong> Jurés →{" "}
+            <strong>3.</strong> Participants
           </span>
         </div>
 
+        {/* Étape 1 */}
         <div style={{ marginBottom: "1.25rem" }}>
           <div
             style={{
@@ -1242,15 +1244,15 @@ function AdminResultsTab({ showFlash, user }) {
             Étape 1 — Calcul
           </div>
           <button
-            className="btn btn-primary"
+            className="btn btn-primary btn-full"
             onClick={handleCompute}
             disabled={computing}
-            style={{ minWidth: "200px" }}
           >
-            {computing ? "⏳ Calcul en cours..." : "🔄 Calculer les résultats"}
+            {computing ? "⏳ Calcul en cours…" : "🔄 Calculer les résultats"}
           </button>
         </div>
 
+        {/* Étapes 2 & 3 — colonne sur mobile */}
         <div
           style={{
             fontSize: ".75rem",
@@ -1262,19 +1264,12 @@ function AdminResultsTab({ showFlash, user }) {
         >
           Étapes 2 & 3 — Publication
         </div>
-        <div
-          style={{
-            display: "flex",
-            gap: "1rem",
-            marginBottom: "1rem",
-            flexWrap: "wrap",
-          }}
-        >
+        <div className="btn-group-responsive" style={{ marginBottom: "1rem" }}>
           <button
             className={`btn ${status.jurorsCanView ? "btn-success" : "btn-amber"}`}
             onClick={handlePublishToJurors}
             disabled={status.jurorsCanView || !hasResults}
-            style={{ minWidth: "220px" }}
+            style={{ flex: 1, justifyContent: "center" }}
           >
             {status.jurorsCanView
               ? "✅ Jurés ont accès"
@@ -1285,7 +1280,7 @@ function AdminResultsTab({ showFlash, user }) {
             className={`btn ${status.isPublished ? "btn-success" : "btn-green"}`}
             onClick={handlePublishToParticipants}
             disabled={status.isPublished || !hasResults}
-            style={{ minWidth: "220px" }}
+            style={{ flex: 1, justifyContent: "center" }}
           >
             {status.isPublished
               ? "✅ Participants ont accès"
@@ -1296,16 +1291,17 @@ function AdminResultsTab({ showFlash, user }) {
             className="btn btn-danger"
             onClick={handleUnpublishAll}
             disabled={!hasResults}
-            style={{ minWidth: "150px" }}
+            style={{ flex: 1, justifyContent: "center" }}
           >
             🔒 Tout masquer
           </button>
         </div>
 
+        {/* Statuts */}
         <div
           style={{
             display: "flex",
-            gap: "1rem",
+            gap: ".5rem",
             flexWrap: "wrap",
             padding: "1rem",
             background: "var(--sand)",
@@ -1313,22 +1309,21 @@ function AdminResultsTab({ showFlash, user }) {
           }}
         >
           <div className={`badge ${hasResults ? "badge-green" : "badge-ink"}`}>
-            📊 Résultats: {hasResults ? "Calculés ✅" : "Non calculés ⏳"}
+            📊 {hasResults ? "Calculés ✅" : "Non calculés ⏳"}
           </div>
           <div
             className={`badge ${status.jurorsCanView ? "badge-green" : "badge-ink"}`}
           >
-            👨‍⚖️ Jurés: {status.jurorsCanView ? "Accès ✅" : "Non publié ⏳"}
+            👨‍⚖️ {status.jurorsCanView ? "Jurés ✅" : "Jurés ⏳"}
           </div>
           <div
             className={`badge ${status.isPublished ? "badge-green" : "badge-ink"}`}
           >
-            🎉 Participants: {status.isPublished ? "Accès ✅" : "Non publié ⏳"}
+            🎉 {status.isPublished ? "Participants ✅" : "Participants ⏳"}
           </div>
         </div>
       </div>
 
-      {/* AFFICHAGE DU PALMARÈS COMPLET POUR ADMIN */}
       {!hasResults ? (
         <div className="info-banner banner-amber">
           <span className="banner-icon">📊</span>
@@ -1372,7 +1367,6 @@ function AdminPalmaresDisplay({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-      {/* 1. Photo d'Or - Meilleur Photographe */}
       {data.bestPhotographer && (
         <div className="section">
           <div className="section-header">
@@ -1411,7 +1405,6 @@ function AdminPalmaresDisplay({
         </div>
       )}
 
-      {/* 2. Classement général complet */}
       <div className="section">
         <div className="section-header">
           <div className="section-title">📊 Classement général</div>
@@ -1432,12 +1425,27 @@ function AdminPalmaresDisplay({
               }}
             >
               <span
-                style={{ fontSize: i < 3 ? "1.5rem" : "1rem", width: "40px" }}
+                style={{
+                  fontSize: i < 3 ? "1.5rem" : "1rem",
+                  width: "40px",
+                  flexShrink: 0,
+                }}
               >
                 {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i + 1}.`}
               </span>
-              <span style={{ flex: 1, fontWeight: 600 }}>{p.name}</span>
-              <span className="badge badge-amber">
+              <span
+                style={{
+                  flex: 1,
+                  fontWeight: 600,
+                  minWidth: 0,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {p.name}
+              </span>
+              <span className="badge badge-amber" style={{ flexShrink: 0 }}>
                 {p.total?.toFixed(1)} pts
               </span>
             </div>
@@ -1445,7 +1453,6 @@ function AdminPalmaresDisplay({
         </div>
       </div>
 
-      {/* 3. Prix par catégorie */}
       <div className="section">
         <div className="section-header">
           <div className="section-title">🏅 Prix par catégorie</div>
@@ -1503,7 +1510,6 @@ function AdminPalmaresDisplay({
         </div>
       </div>
 
-      {/* 4. Coup de cœur du jury */}
       <div className="section">
         <div className="section-header">
           <div className="section-title">❤️ Coup de cœur du jury</div>
@@ -1537,7 +1543,6 @@ function AdminPalmaresDisplay({
         )}
       </div>
 
-      {/* 5. Prix de l'œil */}
       <div className="section">
         <div className="section-header">
           <div className="section-title">
@@ -1567,7 +1572,10 @@ function AdminPalmaresDisplay({
           </div>
         ) : isAdmin && eyePrizeMode ? (
           <div className="panel">
-            <div className="section-header">
+            <div
+              className="section-header"
+              style={{ padding: ".85rem 1rem 0" }}
+            >
               <div className="section-title">
                 Sélectionner la photo gagnante
               </div>
@@ -1580,7 +1588,11 @@ function AdminPalmaresDisplay({
             </div>
             <div
               className="photo-grid"
-              style={{ maxHeight: "400px", overflowY: "auto" }}
+              style={{
+                maxHeight: "400px",
+                overflowY: "auto",
+                padding: ".75rem",
+              }}
             >
               {(data.allSubmissions || []).map((sub) => (
                 <div

@@ -110,10 +110,14 @@ h3 {
 .page {
   max-width: 1100px;
   margin: 0 auto;
-  padding: 1.25rem 1rem calc(var(--bottomnav-h) + 1.5rem);
+  padding: 1rem 0.85rem calc(var(--bottomnav-h) + 1.5rem);
+
+  @media (min-width: 480px) {
+    padding: 1.25rem 1rem calc(var(--bottomnav-h) + 1.5rem);
+  }
 
   @media (min-width: 700px) {
-    padding: 1.5rem 1.5rem calc(2.5rem);
+    padding: 1.5rem 1.5rem 2.5rem;
   }
 }
 
@@ -166,14 +170,18 @@ h3 {
     max-width: 120px;
     overflow: hidden;
     text-overflow: ellipsis;
+
+    /* Masqué sur très petit écran pour économiser de la place */
+    @media (max-width: 360px) {
+      display: none;
+    }
   }
 }
 
-/* Cache le menu toggle en desktop */
+/* Le menu-toggle dans la topbar est caché sur mobile (burger déplacé dans bottom-nav)
+   et caché sur desktop (remplacé par la side-nav) */
 .menu-toggle {
-  @media (min-width: 700px) {
-    display: none;
-  }
+  display: none;
 }
 
 /* ── SIDE NAV (Desktop) ── */
@@ -256,6 +264,7 @@ h3 {
     & .main-content {
       flex: 1;
       overflow: hidden;
+      min-width: 0;
     }
   }
 }
@@ -269,7 +278,7 @@ h3 {
   .side-panel {
     position: fixed;
     top: var(--topbar-h);
-    left: -280px;
+    left: -300px;
     width: 280px;
     height: calc(100dvh - var(--topbar-h));
     background: var(--white);
@@ -278,7 +287,7 @@ h3 {
     transition: left 0.25s ease;
     padding: 1rem;
     overflow-y: auto;
-    box-shadow: 2px 0 12px rgba(0, 0, 0, 0.1);
+    box-shadow: 2px 0 16px rgba(0, 0, 0, 0.15);
   }
 
   .app-layout.mobile-menu-open .side-panel {
@@ -292,12 +301,22 @@ h3 {
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(0, 0, 0, 0.4);
+    background: rgba(0, 0, 0, 0.45);
     z-index: 199;
+  }
+
+  /* Sur mobile, la side-nav est visible dans le panneau latéral */
+  .side-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    width: 100%;
   }
 }
 
-/* Bottom nav - caché en desktop, visible en mobile */
+/* ── BOTTOM NAV ── */
+/* Sur mobile : burger à gauche + onglets
+   Sur desktop : caché                          */
 .bottom-nav {
   position: fixed;
   bottom: 0;
@@ -309,9 +328,50 @@ h3 {
   box-shadow: 0 -2px 12px rgba(26, 22, 18, 0.08);
   padding-bottom: var(--safe-bottom);
   display: flex;
+  align-items: stretch;
 
   @media (min-width: 700px) {
     display: none;
+  }
+
+  /* Bouton burger intégré à gauche */
+  & .bottom-burger {
+    flex-shrink: 0;
+    width: 52px;
+    border: none;
+    border-right: 1.5px solid var(--sand-border);
+    background: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    color: var(--ink-faint);
+    font-size: 1.1rem;
+    padding: 0.5rem 0.25rem 0.45rem;
+    transition:
+      color 0.15s,
+      background 0.15s;
+
+    & span.burger-label {
+      font-size: 0.52rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    &.active,
+    &:active {
+      color: var(--amber);
+      background: var(--amber-light);
+    }
+  }
+
+  /* Zone onglets */
+  & .bottom-tabs {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
   }
 
   & .bottom-tab {
@@ -321,16 +381,24 @@ h3 {
     font-size: 0.62rem;
     font-weight: 500;
     color: var(--ink-faint);
-    padding: 0.5rem 0.25rem 0.45rem;
+    padding: 0.5rem 0.15rem 0.45rem;
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 2px;
     transition: color 0.15s;
+    min-width: 0;
 
     & .tab-icon {
       font-size: 1.25rem;
       line-height: 1;
+    }
+
+    & span:not(.tab-icon) {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 100%;
     }
 
     &.active {
@@ -362,7 +430,11 @@ h3 {
 
 /* ── SECTION ── */
 .section {
-  margin-bottom: 1.5rem;
+  margin-bottom: 1.25rem;
+
+  @media (min-width: 600px) {
+    margin-bottom: 1.5rem;
+  }
 }
 
 .section-header {
@@ -476,6 +548,22 @@ h3 {
   &.btn-full {
     width: 100%;
     justify-content: center;
+  }
+}
+
+/* Groupe de boutons qui passent en colonne sur mobile */
+.btn-group-responsive {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+
+  @media (max-width: 479px) {
+    flex-direction: column;
+
+    & .btn {
+      width: 100%;
+      justify-content: center;
+    }
   }
 }
 
@@ -713,9 +801,13 @@ table {
 /* ── PHOTO GRID ── */
 .photo-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 0.6rem;
 
+  @media (min-width: 400px) {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 0.75rem;
+  }
   @media (min-width: 500px) {
     grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
   }
@@ -782,6 +874,13 @@ table {
       opacity: 1;
     }
 
+    /* Sur touch, toujours visible */
+    @media (hover: none) {
+      & .photo-overlay {
+        opacity: 1;
+      }
+    }
+
     & .photo-badge {
       position: absolute;
       top: 0.4rem;
@@ -815,11 +914,16 @@ table {
   background: rgba(26, 22, 18, 0.65);
   z-index: 200;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
-  padding: 1rem;
+  padding: 0;
   backdrop-filter: blur(4px);
   animation: fadein 0.15s ease;
+
+  @media (min-width: 500px) {
+    align-items: center;
+    padding: 1rem;
+  }
 }
 
 @keyframes fadein {
@@ -833,13 +937,18 @@ table {
 
 .modal {
   background: var(--white);
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
   box-shadow: var(--shadow-lg);
   width: 100%;
-  max-width: 480px;
-  max-height: 90dvh;
+  max-height: 92dvh;
   overflow-y: auto;
-  animation: slideup 0.2s ease;
+  animation: slideup 0.22s ease;
+
+  @media (min-width: 500px) {
+    border-radius: var(--radius-xl);
+    max-width: 480px;
+    max-height: 90dvh;
+  }
 
   & .modal-header {
     display: flex;
@@ -863,13 +972,22 @@ table {
     display: flex;
     gap: 0.5rem;
     justify-content: flex-end;
+
+    & .btn {
+      flex: 1;
+      justify-content: center;
+
+      @media (min-width: 400px) {
+        flex: 0 0 auto;
+      }
+    }
   }
 }
 
 @keyframes slideup {
   from {
     opacity: 0;
-    transform: translateY(12px);
+    transform: translateY(16px);
   }
   to {
     opacity: 1;
@@ -896,12 +1014,17 @@ table {
     display: flex;
     align-items: center;
     gap: 0.4rem;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   & .score-input-wrap {
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    flex-shrink: 0;
 
     & .score-inp {
       width: 56px;
@@ -962,6 +1085,7 @@ table {
       height: 8px;
       border-radius: 50%;
       background: var(--sand-border);
+      flex-shrink: 0;
 
       &.validated {
         background: var(--green);
@@ -1014,6 +1138,7 @@ table {
     font-size: 0.8rem;
     font-weight: 600;
     letter-spacing: 0.06em;
+    white-space: nowrap;
   }
 
   & .slideshow-exit {
