@@ -92,24 +92,21 @@ export default function JuryPage() {
     }
   }
 
-  // Abonnements Realtime pour mises à jour automatiques
+  // Abonnements Realtime
   useEffect(() => {
     if (!activeSession) return;
 
-    // Abonnement aux validations
     const unsubValidations = subscribe("jury_validations", "*", () => {
       api
         .get(`/deliberations/${activeSession.category_id}/validations`)
         .then((v) => setValidations(v.validations || []));
     });
 
-    // Abonnement aux sessions (détecter changement de photo)
     const unsubSessions = subscribe(
       "deliberation_sessions",
       "UPDATE",
       async (payload) => {
         if (payload.new.category_id === activeSession.category_id) {
-          // Mettre à jour la session
           setSessions((prev) =>
             prev.map((s) =>
               s.category_id === activeSession.category_id
@@ -117,15 +114,11 @@ export default function JuryPage() {
                 : s,
             ),
           );
-
-          // Mettre à jour activeSession
           setActiveSession((prev) => ({
             ...prev,
             ...payload.new,
             categories: prev?.categories,
           }));
-
-          // Si l'ID de la photo a changé, recharger
           if (
             payload.new.current_photo_id !== activeSession.current_photo?.id
           ) {
@@ -144,30 +137,11 @@ export default function JuryPage() {
       },
     );
 
-    // Abonnement aux scores (pour mises à jour en temps réel)
-    const unsubScores = subscribe("scores", "INSERT", (payload) => {
-      if (
-        payload.new.submission_id === currentPhoto?.id &&
-        payload.new.juror_id === user.id
-      ) {
-        setScores((prev) => ({
-          ...prev,
-          [payload.new.criterion_id]: payload.new.value,
-        }));
-      }
-    });
-
     return () => {
       unsubValidations();
       unsubSessions();
-      unsubScores();
     };
-  }, [
-    activeSession?.category_id,
-    activeSession?.current_photo?.id,
-    currentPhoto?.id,
-    user.id,
-  ]);
+  }, [activeSession?.category_id, activeSession?.current_photo?.id]);
 
   async function handleScoreChange(criterionId, value) {
     if (validated) return;
@@ -196,14 +170,9 @@ export default function JuryPage() {
       });
       setValidated(true);
       showFlash("✅ Notes validées !");
-
-      // Si tous les jurés ont validé, l'auto-next est déclenché côté serveur
       if (res.allValidated) {
         showFlash("✅ Tous ont validé — passage automatique…");
-        // Recharger les données après un court délai
-        setTimeout(() => {
-          loadSessions();
-        }, 1500);
+        setTimeout(() => loadSessions(), 1500);
       }
     } catch (e) {
       showFlash("❌ " + e.message);
@@ -235,7 +204,6 @@ export default function JuryPage() {
   );
   const maxTotal = criteria.reduce((a, c) => a + (c.max_points || 5), 0);
 
-  // Mode diaporama
   if (slideshowMode && activeSession && currentPhoto) {
     return (
       <div className="slideshow">
@@ -259,9 +227,9 @@ export default function JuryPage() {
     <>
       <TopBar
         title={
-          <>
+          <span>
             📸 Safari · <span>Jury</span>
-          </>
+          </span>
         }
         right={
           <>
@@ -356,12 +324,11 @@ export default function JuryPage() {
                           className={`btn${activeSession?.category_id === s.category_id ? " btn-primary" : ""}`}
                           onClick={async () => {
                             setActiveSession(s);
-                            if (s.current_photo?.id) {
+                            if (s.current_photo?.id)
                               await loadCurrentPhoto(
                                 s.category_id,
                                 s.current_photo.id,
                               );
-                            }
                           }}
                         >
                           {s.categories?.name}
@@ -373,9 +340,8 @@ export default function JuryPage() {
                         className="info-banner banner-amber"
                         style={{ width: "100%" }}
                       >
-                        <span className="banner-icon">⏳</span>
-                        Aucune délibération en cours. L'administrateur doit
-                        ouvrir une catégorie.
+                        <span className="banner-icon">⏳</span>Aucune
+                        délibération en cours.
                       </div>
                     )}
                   </div>
@@ -398,7 +364,6 @@ export default function JuryPage() {
                           <span className="badge badge-green">✅ Validé</span>
                         )}
                       </div>
-
                       <div className="panel" style={{ marginBottom: "1rem" }}>
                         {loadingPhoto ? (
                           <div
@@ -407,7 +372,6 @@ export default function JuryPage() {
                               display: "flex",
                               alignItems: "center",
                               justifyContent: "center",
-                              color: "var(--ink-faint)",
                             }}
                           >
                             <span className="spinner spinner-lg" />
@@ -437,7 +401,6 @@ export default function JuryPage() {
                           </div>
                         )}
                       </div>
-
                       <div className="panel">
                         {criteria.map((c) => (
                           <div key={c.id} className="score-row">
@@ -496,7 +459,6 @@ export default function JuryPage() {
                         </div>
                       </div>
                     </div>
-
                     <div className="section">
                       <div className="section-header">
                         <div className="section-title">
@@ -518,13 +480,6 @@ export default function JuryPage() {
                       </div>
                     </div>
                   </>
-                )}
-
-                {activeSession && !currentPhoto && !loadingPhoto && (
-                  <div className="info-banner banner-amber">
-                    <span className="banner-icon">📸</span>
-                    Aucune photo en cours dans cette catégorie.
-                  </div>
                 )}
               </>
             )}
@@ -554,6 +509,9 @@ export default function JuryPage() {
   );
 }
 
+// ════════════════════════════════════════════════════════════════
+// COMPOSANT PALMARÈS - Version avec coups de cœur détaillés + Prix de l'œil avec gestion égalité
+// ════════════════════════════════════════════════════════════════
 function PalmaresView({ showFlash, user }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -562,21 +520,21 @@ function PalmaresView({ showFlash, user }) {
   const [showTieModal, setShowTieModal] = useState(false);
   const [selectedPhoto, setSelectedPhoto] = useState(null);
   const [voting, setVoting] = useState(false);
-  const [tieBreakerVotes, setTieBreakerVotes] = useState({});
+  const [eyePrizeData, setEyePrizeData] = useState(null);
+  const [tieSubmissions, setTieSubmissions] = useState([]);
+  const [finalizing, setFinalizing] = useState(false);
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const result = await api.get("/results/palmares");
-      console.log("[PalmaresView] Données reçues:", result);
-      setData(result);
-
-      // Vérifier s'il y a une égalité pour le prix de l'œil
-      if (result.eyePrize?.isTieForFirst && !result.eyePrize?.isFinalized) {
-        setShowTieModal(true);
-      }
+      const [palmaresResult, votesResult] = await Promise.all([
+        api.get("/results/palmares"),
+        api.get("/results/eye-prize/votes").catch(() => null),
+      ]);
+      setData(palmaresResult);
+      setEyePrizeData(votesResult);
     } catch (e) {
-      console.error("[PalmaresView] Erreur:", e);
+      console.error(e);
       showFlash?.(e.message);
     } finally {
       setLoading(false);
@@ -602,48 +560,47 @@ function PalmaresView({ showFlash, user }) {
     }
   };
 
-  const handleTieBreakerVote = async (submissionId) => {
-    setVoting(true);
+  const handleFinalize = async (submissionId) => {
+    setFinalizing(true);
     try {
-      await api.post("/results/eye-prize/vote", { submissionId });
-      showFlash("✅ Vote d'égalité enregistré !");
+      await api.post("/results/eye-prize/finalize", { submissionId });
+      showFlash("✅ Prix de l'œil finalisé !");
       await loadData();
+      setShowResultsModal(false);
       setShowTieModal(false);
     } catch (e) {
-      showFlash("❌ " + e.message);
+      if (e.hasTie) {
+        setTieSubmissions(e.tiedSubmissions || []);
+        setShowTieModal(true);
+        showFlash("⚠️ Égalité détectée ! Le jury doit délibérer.");
+      } else {
+        showFlash("❌ " + e.message);
+      }
     } finally {
-      setVoting(false);
+      setFinalizing(false);
     }
   };
 
-  if (loading) {
+  if (loading)
     return (
       <div style={{ textAlign: "center", padding: "3rem" }}>
         <span className="spinner spinner-lg" />
       </div>
     );
-  }
-
-  if (!data || !data.generalRanking?.length) {
-    return (
-      <div className="empty-state">
-        <div className="empty-icon">🏆</div>
-        <div className="empty-title">Résultats non disponibles</div>
-        <p>Les résultats seront publiés prochainement.</p>
-      </div>
-    );
-  }
 
   const isJuror = user?.role === "juror" || user?.role === "admin";
-  const hasVoted = data.eyePrize?.myVote !== null;
-  const eyeVotes = data.eyePrize?.votes || [];
-  const isTie = data.eyePrize?.isTieForFirst === true;
-  const tiedPhotos = data.eyePrize?.tiedPhotos || [];
+  const hasVoted = eyePrizeData?.myVote !== null;
+  const voteCounts = eyePrizeData?.voteCounts || [];
+  const finalResult = eyePrizeData?.finalResult;
+  const hasTie = eyePrizeData?.hasTie;
+
+  // Pour l'affichage des coups de cœur avec photos
+  const favoriteCounts = data?.favoriteCounts || [];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-      {/* 1. Photo d'Or - Meilleur Photographe */}
-      {data.bestPhotographer && (
+      {/* 1. Photo d'Or */}
+      {data?.bestPhotographer && (
         <div className="section">
           <div className="section-header">
             <div className="section-title">
@@ -674,8 +631,8 @@ function PalmaresView({ showFlash, user }) {
                 marginTop: ".25rem",
               }}
             >
-              {data.bestPhotographer.total.toFixed(1)} points totaux ·{" "}
-              {data.bestPhotographer.finalists} victoire(s) par catégorie
+              {data.bestPhotographer.total?.toFixed(1)} points totaux ·{" "}
+              {data.bestPhotographer.finalists} victoire(s)
             </div>
           </div>
         </div>
@@ -687,7 +644,7 @@ function PalmaresView({ showFlash, user }) {
           <div className="section-title">📊 Classement général</div>
         </div>
         <div className="panel">
-          {data.generalRanking.slice(0, 10).map((p, i) => (
+          {data?.generalRanking?.slice(0, 10).map((p, i) => (
             <div
               key={i}
               style={{
@@ -695,10 +652,7 @@ function PalmaresView({ showFlash, user }) {
                 alignItems: "center",
                 gap: "1rem",
                 padding: ".75rem 1rem",
-                borderBottom:
-                  i < data.generalRanking.length - 1
-                    ? "1px solid var(--sand-border)"
-                    : "none",
+                borderBottom: "1px solid var(--sand-border)",
               }}
             >
               <span
@@ -723,65 +677,65 @@ function PalmaresView({ showFlash, user }) {
         <div
           style={{ display: "flex", flexDirection: "column", gap: ".75rem" }}
         >
-          {(data.byCategory || [])
+          {(data?.byCategory || [])
             .filter((r) => r.rank === 1)
-            .map((winner, idx) => {
-              const categoryName = winner.categories?.name;
-              const authorName = winner.author;
-              return (
-                <div key={idx} className="card">
-                  <div
-                    style={{
-                      fontSize: ".72rem",
-                      fontWeight: 700,
-                      textTransform: "uppercase",
-                      color: "var(--ink-faint)",
-                    }}
-                  >
-                    {categoryName}
-                  </div>
-                  <div
-                    style={{
-                      fontFamily: "'DM Serif Display', serif",
-                      fontSize: "1.1rem",
-                      color: "var(--amber)",
-                      marginTop: ".25rem",
-                    }}
-                  >
-                    🥇{" "}
-                    {authorName ||
-                      winner.submissions?.anonymous_id ||
-                      "Anonyme"}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: ".8rem",
-                      color: "var(--ink-muted)",
-                      marginTop: ".25rem",
-                    }}
-                  >
-                    Moyenne : {winner.average_score?.toFixed(1)}/20
-                  </div>
+            .map((winner, idx) => (
+              <div key={idx} className="card">
+                <div
+                  style={{
+                    fontSize: ".72rem",
+                    fontWeight: 700,
+                    textTransform: "uppercase",
+                    color: "var(--ink-faint)",
+                  }}
+                >
+                  {winner.categories?.name}
                 </div>
-              );
-            })}
+                <div
+                  style={{
+                    fontFamily: "'DM Serif Display', serif",
+                    fontSize: "1.1rem",
+                    color: "var(--amber)",
+                    marginTop: ".25rem",
+                  }}
+                >
+                  🥇{" "}
+                  {winner.author ||
+                    winner.submissions?.anonymous_id ||
+                    "Anonyme"}
+                </div>
+                <div
+                  style={{
+                    fontSize: ".8rem",
+                    color: "var(--ink-muted)",
+                    marginTop: ".25rem",
+                  }}
+                >
+                  Moyenne : {winner.average_score?.toFixed(1)}/20
+                </div>
+              </div>
+            ))}
         </div>
       </div>
 
-      {/* 4. Coups de cœur du jury - AVEC PHOTOS ET NOMS */}
+      {/* 4. Coup de cœur du jury - AVEC PHOTOS et DÉTAILS */}
       <div className="section">
         <div className="section-header">
-          <div className="section-title">❤️ Coups de cœur du jury</div>
+          <div className="section-title">❤️ Coup de cœur du jury</div>
         </div>
-        {data.favorites && data.favorites.length > 0 ? (
+        {favoriteCounts.length > 0 ? (
           <div
             className="photo-grid"
             style={{
-              gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+              gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))",
             }}
           >
-            {data.favorites.map((fav, idx) => (
-              <div key={idx} className="card" style={{ padding: "1rem" }}>
+            {favoriteCounts.map((fav, idx) => (
+              <div
+                key={idx}
+                className="card"
+                style={{ textAlign: "center", padding: "1rem" }}
+              >
                 {fav.photoUrl ? (
                   <img
                     src={fav.photoUrl}
@@ -805,40 +759,61 @@ function PalmaresView({ showFlash, user }) {
                       justifyContent: "center",
                       borderRadius: "8px",
                       marginBottom: ".75rem",
-                      fontSize: "3rem",
                     }}
                   >
                     📷
                   </div>
                 )}
                 <div style={{ fontWeight: 700, fontSize: ".9rem" }}>
-                  {fav.participantName}
-                </div>
-                <div style={{ fontSize: ".75rem", color: "var(--ink-muted)" }}>
                   {fav.anonymousId}
                 </div>
                 <div
                   style={{
-                    fontSize: ".7rem",
-                    color: "var(--ink-faint)",
+                    fontSize: ".75rem",
+                    color: "var(--ink-muted)",
                     marginTop: ".25rem",
                   }}
                 >
-                  Catégorie : {fav.categoryName}
+                  📸 {fav.author}
                 </div>
+                {fav.categoryName && (
+                  <div
+                    style={{
+                      fontSize: ".7rem",
+                      color: "var(--ink-faint)",
+                      marginTop: ".2rem",
+                    }}
+                  >
+                    {fav.categoryName}
+                  </div>
+                )}
                 <div
                   className="badge badge-amber"
-                  style={{ marginTop: ".5rem", display: "inline-block" }}
+                  style={{ marginTop: ".75rem" }}
                 >
-                  ❤️ {fav.count} coup(s) de cœur
+                  ❤️ {fav.voteCount} coup(s) de cœur
                 </div>
+                {fav.jurorVotes && fav.jurorVotes.length > 0 && (
+                  <div
+                    style={{
+                      fontSize: ".65rem",
+                      color: "var(--ink-muted)",
+                      marginTop: ".5rem",
+                    }}
+                  >
+                    Votes :{" "}
+                    {fav.jurorVotes
+                      .map((v) => v.jurorName.split(" ")[0])
+                      .join(", ")}
+                  </div>
+                )}
               </div>
             ))}
           </div>
         ) : (
           <div className="info-banner banner-amber">
-            <span className="banner-icon">⏳</span>
-            Aucun coup de cœur n'a encore été attribué.
+            <span className="banner-icon">⏳</span>Aucun coup de cœur n'a encore
+            été attribué.
           </div>
         )}
       </div>
@@ -851,11 +826,11 @@ function PalmaresView({ showFlash, user }) {
           </div>
         </div>
 
-        {data.eyePrize?.isFinalized ? (
+        {finalResult ? (
           <div className="card" style={{ textAlign: "center" }}>
-            {data.eyePrize.finalResult?.submissions?.photoUrl && (
+            {finalResult.submissions?.photoUrl && (
               <img
-                src={data.eyePrize.finalResult.submissions.photoUrl}
+                src={finalResult.submissions.photoUrl}
                 alt="Photo gagnante"
                 style={{
                   width: "100%",
@@ -876,22 +851,21 @@ function PalmaresView({ showFlash, user }) {
                 color: "var(--amber)",
               }}
             >
-              {data.eyePrize.finalResult?.submissions?.anonymous_id}
+              {finalResult.submissions?.anonymous_id}
             </div>
             <div style={{ fontSize: ".8rem", color: "var(--ink-muted)" }}>
-              {data.eyePrize.finalResult?.submissions?.users &&
-                `par ${data.eyePrize.finalResult.submissions.users.first_name} ${data.eyePrize.finalResult.submissions.users.last_name}`}
-              {data.eyePrize.finalResult?.submissions?.categories?.name &&
-                ` · ${data.eyePrize.finalResult.submissions.categories.name}`}
+              {finalResult.submissions?.users &&
+                `par ${finalResult.submissions.users.first_name} ${finalResult.submissions.users.last_name}`}
+              {finalResult.submissions?.categories?.name &&
+                ` · ${finalResult.submissions.categories.name}`}
             </div>
             <div className="badge badge-amber" style={{ marginTop: ".5rem" }}>
-              {data.eyePrize.finalResult?.total_votes || 0} vote(s)
+              {finalResult.total_votes} vote(s)
             </div>
           </div>
         ) : (
           <>
-            {/* Résumé des votes en cours avec photos */}
-            {eyeVotes.length > 0 && (
+            {voteCounts.length > 0 && (
               <div className="panel" style={{ marginBottom: "1rem" }}>
                 <div
                   className="section-header"
@@ -914,14 +888,14 @@ function PalmaresView({ showFlash, user }) {
                   style={{
                     padding: "0.75rem",
                     gridTemplateColumns:
-                      "repeat(auto-fill, minmax(160px, 1fr))",
+                      "repeat(auto-fill, minmax(180px, 1fr))",
                   }}
                 >
-                  {eyeVotes.slice(0, 3).map((vote, idx) => (
+                  {voteCounts.slice(0, 3).map((vote, idx) => (
                     <div
                       key={idx}
                       className="card"
-                      style={{ textAlign: "center", padding: ".5rem" }}
+                      style={{ textAlign: "center", padding: ".75rem" }}
                     >
                       {vote.photoUrl ? (
                         <img
@@ -929,72 +903,52 @@ function PalmaresView({ showFlash, user }) {
                           alt=""
                           style={{
                             width: "100%",
-                            height: "100px",
+                            height: "120px",
                             objectFit: "cover",
                             borderRadius: "6px",
+                            marginBottom: ".5rem",
                           }}
                         />
                       ) : (
                         <div
                           style={{
                             width: "100%",
-                            height: "100px",
+                            height: "120px",
                             background: "var(--sand-dark)",
                             display: "flex",
                             alignItems: "center",
                             justifyContent: "center",
                             borderRadius: "6px",
-                            fontSize: "2rem",
+                            marginBottom: ".5rem",
                           }}
                         >
                           📷
                         </div>
                       )}
-                      <div
-                        style={{
-                          fontSize: ".7rem",
-                          fontWeight: 600,
-                          marginTop: ".25rem",
-                        }}
-                      >
-                        {vote.participantName}
-                      </div>
-                      <div
-                        style={{
-                          fontSize: ".65rem",
-                          color: "var(--ink-muted)",
-                        }}
-                      >
+                      <div style={{ fontSize: ".75rem", fontWeight: 600 }}>
                         {vote.anonymousId}
                       </div>
                       <span
                         className="badge badge-amber"
-                        style={{ fontSize: ".65rem", marginTop: ".25rem" }}
+                        style={{ fontSize: ".7rem", marginTop: ".25rem" }}
                       >
                         {vote.votes} voix
                       </span>
                     </div>
                   ))}
                 </div>
+                {hasTie && (
+                  <div
+                    className="info-banner banner-red"
+                    style={{ marginTop: ".5rem" }}
+                  >
+                    <span className="banner-icon">⚠️</span>Égalité détectée !
+                    Cliquez sur "Voir tous les votes" pour départager.
+                  </div>
+                )}
               </div>
             )}
 
-            {/* Message d'égalité */}
-            {isTie && (
-              <div
-                className="info-banner banner-red"
-                style={{ marginBottom: "1rem" }}
-              >
-                <span className="banner-icon">⚠️</span>
-                <span>
-                  <strong>Égalité détectée !</strong> Plusieurs photos sont à
-                  égalité pour la première place. Les jurés doivent voter à
-                  nouveau pour départager les photos ci-dessous.
-                </span>
-              </div>
-            )}
-
-            {/* Mon vote */}
             <div
               className="info-banner banner-amber"
               style={{ marginBottom: "1rem" }}
@@ -1004,9 +958,9 @@ function PalmaresView({ showFlash, user }) {
                 <span>
                   Vous avez voté pour{" "}
                   <strong>
-                    {data.eyePrize?.myVote?.anonymousId || "une photo"}
+                    {eyePrizeData?.myVote?.submissions?.anonymous_id}
                   </strong>
-                  . Vous pouvez modifier votre vote à tout moment.
+                  . Vous pouvez modifier votre vote.
                 </span>
               ) : (
                 <span>
@@ -1016,7 +970,6 @@ function PalmaresView({ showFlash, user }) {
               )}
             </div>
 
-            {/* Bouton pour voter */}
             <button
               className="btn btn-primary btn-full"
               onClick={() => setShowVoteModal(true)}
@@ -1029,7 +982,7 @@ function PalmaresView({ showFlash, user }) {
         )}
       </div>
 
-      {/* MODAL DE VOTE - AVEC TOUTES LES PHOTOS */}
+      {/* MODAL DE VOTE */}
       {showVoteModal && (
         <div className="modal-backdrop" onClick={() => setShowVoteModal(false)}>
           <div
@@ -1053,15 +1006,15 @@ function PalmaresView({ showFlash, user }) {
                   gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
                 }}
               >
-                {(data.allSubmissions || []).map((sub) => (
+                {(data?.allSubmissions || []).map((sub) => (
                   <div
                     key={sub.id}
-                    className={`photo-item ${data.eyePrize?.myVote?.submissionId === sub.id ? "selected" : ""}`}
+                    className={`photo-item ${eyePrizeData?.myVote?.submission_id === sub.id ? "selected" : ""}`}
                     onClick={() => setSelectedPhoto(sub)}
                     style={{
                       cursor: "pointer",
                       border:
-                        data.eyePrize?.myVote?.submissionId === sub.id
+                        eyePrizeData?.myVote?.submission_id === sub.id
                           ? "3px solid var(--amber)"
                           : "1.5px solid var(--sand-border)",
                     }}
@@ -1085,7 +1038,6 @@ function PalmaresView({ showFlash, user }) {
                           alignItems: "center",
                           justifyContent: "center",
                           background: "var(--sand-dark)",
-                          fontSize: "2rem",
                         }}
                       >
                         📷
@@ -1107,7 +1059,7 @@ function PalmaresView({ showFlash, user }) {
                           width: "100%",
                         }}
                       >
-                        {sub.participantName}
+                        {sub.anonymous_id}
                       </div>
                     </div>
                   </div>
@@ -1153,7 +1105,7 @@ function PalmaresView({ showFlash, user }) {
               </button>
             </div>
             <div className="modal-body" style={{ overflowY: "auto" }}>
-              {eyeVotes.length === 0 ? (
+              {voteCounts.length === 0 ? (
                 <div
                   style={{
                     textAlign: "center",
@@ -1161,14 +1113,14 @@ function PalmaresView({ showFlash, user }) {
                     color: "var(--ink-muted)",
                   }}
                 >
-                  Aucun vote enregistré pour le moment.
+                  Aucun vote enregistré.
                 </div>
               ) : (
                 <div
                   className="photo-grid"
                   style={{ gridTemplateColumns: "1fr" }}
                 >
-                  {eyeVotes
+                  {voteCounts
                     .sort((a, b) => b.votes - a.votes)
                     .map((vote, idx) => (
                       <div
@@ -1196,7 +1148,7 @@ function PalmaresView({ showFlash, user }) {
                         )}
                         <div style={{ flex: 1 }}>
                           <div style={{ fontWeight: 700 }}>
-                            {vote.participantName}
+                            {vote.anonymousId}
                           </div>
                           <div
                             style={{
@@ -1204,7 +1156,15 @@ function PalmaresView({ showFlash, user }) {
                               color: "var(--ink-muted)",
                             }}
                           >
-                            {vote.anonymousId}
+                            {vote.author}
+                          </div>
+                          <div
+                            style={{
+                              fontSize: ".7rem",
+                              color: "var(--ink-faint)",
+                            }}
+                          >
+                            {vote.categoryName}
                           </div>
                         </div>
                         <div>
@@ -1215,6 +1175,15 @@ function PalmaresView({ showFlash, user }) {
                             {vote.votes} voix
                           </span>
                         </div>
+                        {isJuror && (
+                          <button
+                            className="btn btn-sm btn-primary"
+                            onClick={() => handleFinalize(vote.submissionId)}
+                            disabled={finalizing}
+                          >
+                            🏆 Finaliser
+                          </button>
+                        )}
                       </div>
                     ))}
                 </div>
@@ -1232,16 +1201,16 @@ function PalmaresView({ showFlash, user }) {
         </div>
       )}
 
-      {/* MODAL D'ÉGALITÉ - DÉPARTAGE */}
-      {showTieModal && tiedPhotos.length > 0 && (
+      {/* MODAL D'ÉGALITÉ - Demande de délibération */}
+      {showTieModal && (
         <div className="modal-backdrop" onClick={() => setShowTieModal(false)}>
           <div
             className="modal"
-            style={{ maxWidth: "700px", maxHeight: "80dvh" }}
+            style={{ maxWidth: "600px" }}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="modal-header">
-              <h3>⚠️ Égalité — Départagez les photos</h3>
+              <h3>⚠️ Égalité détectée</h3>
               <button
                 className="btn btn-sm"
                 onClick={() => setShowTieModal(false)}
@@ -1250,36 +1219,31 @@ function PalmaresView({ showFlash, user }) {
               </button>
             </div>
             <div className="modal-body">
-              <p style={{ marginBottom: "1rem", color: "var(--ink-muted)" }}>
-                Plusieurs photos sont à égalité. Veuillez voter pour celle que
-                vous préférez.
+              <p>
+                Plusieurs photos ont le même nombre de votes. Le jury doit
+                délibérer pour choisir la gagnante.
               </p>
               <div
                 className="photo-grid"
                 style={{
                   gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+                  marginTop: "1rem",
                 }}
               >
-                {tiedPhotos.map((photo) => (
+                {tieSubmissions.map((sub, idx) => (
                   <div
-                    key={photo.submissionId}
+                    key={idx}
                     className="card"
                     style={{
                       textAlign: "center",
                       padding: "1rem",
                       cursor: "pointer",
-                      border: tieBreakerVotes[photo.submissionId]
-                        ? "3px solid var(--amber)"
-                        : "1px solid var(--sand-border)",
                     }}
-                    onClick={() => {
-                      setTieBreakerVotes({ [photo.submissionId]: true });
-                      handleTieBreakerVote(photo.submissionId);
-                    }}
+                    onClick={() => handleFinalize(sub.id)}
                   >
-                    {photo.photoUrl ? (
+                    {sub.photoUrl ? (
                       <img
-                        src={photo.photoUrl}
+                        src={sub.photoUrl}
                         alt=""
                         style={{
                           width: "100%",
@@ -1300,33 +1264,40 @@ function PalmaresView({ showFlash, user }) {
                           justifyContent: "center",
                           borderRadius: "8px",
                           marginBottom: ".5rem",
-                          fontSize: "3rem",
                         }}
                       >
                         📷
                       </div>
                     )}
-                    <div style={{ fontWeight: 700 }}>
-                      {photo.participantName}
-                    </div>
+                    <div style={{ fontWeight: 700 }}>{sub.anonymous_id}</div>
                     <div
                       style={{ fontSize: ".75rem", color: "var(--ink-muted)" }}
                     >
-                      {photo.anonymousId}
+                      {sub.users?.first_name} {sub.users?.last_name}
                     </div>
                     <div
                       className="badge badge-amber"
                       style={{ marginTop: ".5rem" }}
                     >
-                      {photo.votes} voix
+                      {sub.votes} voix
                     </div>
+                    <button
+                      className="btn btn-primary btn-sm"
+                      style={{ marginTop: ".5rem", width: "100%" }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleFinalize(sub.id);
+                      }}
+                    >
+                      🏆 Choisir cette photo
+                    </button>
                   </div>
                 ))}
               </div>
             </div>
             <div className="modal-footer">
               <button className="btn" onClick={() => setShowTieModal(false)}>
-                Annuler
+                Fermer
               </button>
             </div>
           </div>
