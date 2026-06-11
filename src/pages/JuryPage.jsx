@@ -473,16 +473,15 @@ export default function JuryPage() {
   );
 }
 
-/* ── Composant Palmarès complet avec système de vote pour le Prix de l'œil ── */
+/* ── Composant Palmarès complet corrigé ── */
 function PalmaresView({ showFlash, user }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [eyePrizeData, setEyePrizeData] = useState(null);
   const [showVoteModal, setShowVoteModal] = useState(false);
   const [showResultsModal, setShowResultsModal] = useState(false);
   const [selectedPhoto, setSelectedPhoto] = useState(null);
   const [voting, setVoting] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(user?.role === "admin");
+  const [eyePrizeData, setEyePrizeData] = useState(null);
 
   const loadData = async () => {
     setLoading(true);
@@ -492,7 +491,6 @@ function PalmaresView({ showFlash, user }) {
         api.get("/results/eye-prize/votes").catch(() => null),
       ]);
       console.log("[PalmaresView] Données reçues:", palmaresResult);
-      console.log("[PalmaresView] Votes:", votesResult);
       setData(palmaresResult);
       setEyePrizeData(votesResult);
     } catch (e) {
@@ -534,22 +532,6 @@ function PalmaresView({ showFlash, user }) {
     }
   };
 
-  const handleResetVotes = async () => {
-    if (
-      !confirm(
-        "⚠️ Réinitialiser tous les votes du Prix de l'œil ? Cette action est irréversible.",
-      )
-    )
-      return;
-    try {
-      await api.post("/results/eye-prize/reset");
-      showFlash("🔄 Votes réinitialisés");
-      await loadData();
-    } catch (e) {
-      showFlash("❌ " + e.message);
-    }
-  };
-
   if (loading) {
     return (
       <div style={{ textAlign: "center", padding: "3rem" }}>
@@ -572,16 +554,6 @@ function PalmaresView({ showFlash, user }) {
   const hasVoted = eyePrizeData?.myVote !== null;
   const voteCounts = eyePrizeData?.voteCounts || [];
   const finalResult = eyePrizeData?.finalResult;
-  const totalJurors = eyePrizeData?.totalJurors || 0;
-
-  // Trouver la photo avec le plus de votes pour afficher dans le résumé
-  const topVoted =
-    voteCounts.length > 0
-      ? voteCounts.reduce(
-          (max, curr) => (curr.votes > max.votes ? curr : max),
-          voteCounts[0],
-        )
-      : null;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
@@ -655,7 +627,7 @@ function PalmaresView({ showFlash, user }) {
         </div>
       </div>
 
-      {/* 3. Prix par catégorie */}
+      {/* 3. Prix par catégorie - AVEC NOM DU LAURÉAT */}
       <div className="section">
         <div className="section-header">
           <div className="section-title">🏅 Prix par catégorie</div>
@@ -663,81 +635,117 @@ function PalmaresView({ showFlash, user }) {
         <div
           style={{ display: "flex", flexDirection: "column", gap: ".75rem" }}
         >
-          {Object.entries(
-            (data.byCategory || []).reduce((acc, r) => {
-              if (!acc[r.category_id]) acc[r.category_id] = [];
-              acc[r.category_id].push(r);
-              return acc;
-            }, {}),
-          ).map(([catId, results]) => {
-            const winner = results[0];
-            const categoryName =
-              winner.categories?.name || `Catégorie ${catId}`;
-            return (
-              <div key={catId} className="card">
-                <div
-                  style={{
-                    fontSize: ".72rem",
-                    fontWeight: 700,
-                    textTransform: "uppercase",
-                    color: "var(--ink-faint)",
-                  }}
-                >
-                  {categoryName}
+          {(data.byCategory || [])
+            .filter((r) => r.rank === 1)
+            .map((winner, idx) => {
+              const categoryName = winner.categories?.name;
+              const authorName = winner.submissions?.users
+                ? `${winner.submissions.users.first_name} ${winner.submissions.users.last_name}`
+                : null;
+              return (
+                <div key={idx} className="card">
+                  <div
+                    style={{
+                      fontSize: ".72rem",
+                      fontWeight: 700,
+                      textTransform: "uppercase",
+                      color: "var(--ink-faint)",
+                    }}
+                  >
+                    {categoryName}
+                  </div>
+                  <div
+                    style={{
+                      fontFamily: "'DM Serif Display', serif",
+                      fontSize: "1.1rem",
+                      color: "var(--amber)",
+                      marginTop: ".25rem",
+                    }}
+                  >
+                    🥇{" "}
+                    {authorName ||
+                      winner.submissions?.anonymous_id ||
+                      "Anonyme"}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: ".8rem",
+                      color: "var(--ink-muted)",
+                      marginTop: ".25rem",
+                    }}
+                  >
+                    Moyenne : {winner.average_score?.toFixed(1)}/20
+                  </div>
                 </div>
-                <div
-                  style={{
-                    fontFamily: "'DM Serif Display', serif",
-                    fontSize: "1.1rem",
-                    color: "var(--amber)",
-                    marginTop: ".25rem",
-                  }}
-                >
-                  🥇{" "}
-                  {winner.author ||
-                    winner.submissions?.anonymous_id ||
-                    "Anonyme"}
-                </div>
-                <div
-                  style={{
-                    fontSize: ".8rem",
-                    color: "var(--ink-muted)",
-                    marginTop: ".25rem",
-                  }}
-                >
-                  Moyenne : {winner.average_score?.toFixed(1)}/20
-                </div>
-              </div>
-            );
-          })}
+              );
+            })}
         </div>
       </div>
 
-      {/* 4. Coup de cœur du jury */}
+      {/* 4. Coup de cœur du jury - AVEC IMAGES */}
       <div className="section">
         <div className="section-header">
           <div className="section-title">❤️ Coup de cœur du jury</div>
         </div>
-        {data.topFavorite ? (
-          <div className="card" style={{ textAlign: "center" }}>
-            <div style={{ fontSize: "2.5rem", marginBottom: ".5rem" }}>❤️</div>
-            <div
-              style={{
-                fontFamily: "'DM Serif Display', serif",
-                fontSize: "1.2rem",
-                color: "var(--red)",
-              }}
-            >
-              {data.topFavorite.anonymousId}
-            </div>
-            <div style={{ fontSize: ".8rem", color: "var(--ink-muted)" }}>
-              {data.topFavorite.author && `par ${data.topFavorite.author}`}
-              {data.topFavorite.categoryName &&
-                ` · ${data.topFavorite.categoryName}`}
-            </div>
-            <div className="badge badge-amber" style={{ marginTop: ".5rem" }}>
-              {data.topFavorite.totalFavorites} coup(s) de cœur
-            </div>
+        {data.favoriteCounts && data.favoriteCounts.length > 0 ? (
+          <div
+            className="photo-grid"
+            style={{
+              gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+            }}
+          >
+            {data.favoriteCounts
+              .sort((a, b) => b.count - a.count)
+              .map((fav, idx) => (
+                <div
+                  key={idx}
+                  className="card"
+                  style={{ textAlign: "center", padding: "1rem" }}
+                >
+                  {fav.photoUrl ? (
+                    <img
+                      src={fav.photoUrl}
+                      alt=""
+                      style={{
+                        width: "100%",
+                        height: "150px",
+                        objectFit: "cover",
+                        borderRadius: "8px",
+                        marginBottom: ".5rem",
+                      }}
+                    />
+                  ) : (
+                    <div
+                      style={{
+                        width: "100%",
+                        height: "150px",
+                        background: "var(--sand-dark)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        borderRadius: "8px",
+                        marginBottom: ".5rem",
+                      }}
+                    >
+                      📷
+                    </div>
+                  )}
+                  <div style={{ fontWeight: 700 }}>{fav.anonymousId}</div>
+                  {fav.author && (
+                    <div
+                      style={{ fontSize: ".75rem", color: "var(--ink-muted)" }}
+                    >
+                      {fav.author}
+                    </div>
+                  )}
+                  <div
+                    className="badge badge-amber"
+                    style={{ marginTop: ".5rem" }}
+                  >
+                    {fav.count} coup(s) de cœur
+                  </div>
+                </div>
+              ))}
           </div>
         ) : (
           <div className="info-banner banner-amber">
@@ -747,23 +755,14 @@ function PalmaresView({ showFlash, user }) {
         )}
       </div>
 
-      {/* 5. Prix de l'œil — Système de vote */}
+      {/* 5. Prix de l'œil - AVEC VOTE ET IMAGES */}
       <div className="section">
         <div className="section-header">
           <div className="section-title">
             👁️ Prix de l'œil — Photo la plus originale
           </div>
-          {isAdmin && (
-            <button
-              className="btn btn-sm btn-danger"
-              onClick={handleResetVotes}
-            >
-              🔄 Réinitialiser les votes
-            </button>
-          )}
         </div>
 
-        {/* Résultat finalisé */}
         {finalResult ? (
           <div className="card" style={{ textAlign: "center" }}>
             {finalResult.submissions?.photoUrl && (
@@ -798,7 +797,7 @@ function PalmaresView({ showFlash, user }) {
                 ` · ${finalResult.submissions.categories.name}`}
             </div>
             <div className="badge badge-amber" style={{ marginTop: ".5rem" }}>
-              {finalResult.total_votes} vote(s) sur {totalJurors} jurés
+              {finalResult.total_votes} vote(s)
             </div>
           </div>
         ) : (
@@ -822,46 +821,63 @@ function PalmaresView({ showFlash, user }) {
                     Voir tous les votes
                   </button>
                 </div>
-                <div style={{ padding: "0.75rem 1rem" }}>
+                <div
+                  className="photo-grid"
+                  style={{
+                    padding: "0.75rem",
+                    gridTemplateColumns:
+                      "repeat(auto-fill, minmax(150px, 1fr))",
+                  }}
+                >
                   {voteCounts.slice(0, 3).map((vote, idx) => (
                     <div
                       key={idx}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        marginBottom: ".5rem",
-                      }}
+                      className="card"
+                      style={{ textAlign: "center", padding: ".5rem" }}
                     >
-                      <div>
-                        <strong>{vote.anonymousId}</strong>
-                        {vote.author && (
-                          <span
-                            style={{
-                              fontSize: ".7rem",
-                              color: "var(--ink-muted)",
-                            }}
-                          >
-                            {" "}
-                            · {vote.author}
-                          </span>
-                        )}
+                      {vote.photoUrl ? (
+                        <img
+                          src={vote.photoUrl}
+                          alt=""
+                          style={{
+                            width: "100%",
+                            height: "100px",
+                            objectFit: "cover",
+                            borderRadius: "6px",
+                          }}
+                        />
+                      ) : (
+                        <div
+                          style={{
+                            width: "100%",
+                            height: "100px",
+                            background: "var(--sand-dark)",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            borderRadius: "6px",
+                          }}
+                        >
+                          📷
+                        </div>
+                      )}
+                      <div
+                        style={{
+                          fontSize: ".7rem",
+                          fontWeight: 600,
+                          marginTop: ".25rem",
+                        }}
+                      >
+                        {vote.anonymousId}
                       </div>
-                      <span className="badge badge-amber">
+                      <span
+                        className="badge badge-amber"
+                        style={{ fontSize: ".65rem" }}
+                      >
                         {vote.votes} voix
                       </span>
                     </div>
                   ))}
-                  {voteCounts.length > 3 && (
-                    <div style={{ textAlign: "center", marginTop: ".5rem" }}>
-                      <button
-                        className="btn btn-sm"
-                        onClick={() => setShowResultsModal(true)}
-                      >
-                        + {voteCounts.length - 3} autre(s) photo(s)
-                      </button>
-                    </div>
-                  )}
                 </div>
               </div>
             )}
@@ -876,7 +892,7 @@ function PalmaresView({ showFlash, user }) {
                 <span>
                   Vous avez voté pour{" "}
                   <strong>
-                    {eyePrizeData.myVote?.submissions?.anonymous_id}
+                    {eyePrizeData?.myVote?.submissions?.anonymous_id}
                   </strong>
                   . Vous pouvez modifier votre vote à tout moment.
                 </span>
@@ -901,7 +917,7 @@ function PalmaresView({ showFlash, user }) {
         )}
       </div>
 
-      {/* MODAL DE VOTE - Toutes les photos */}
+      {/* MODAL DE VOTE - AVEC TOUTES LES PHOTOS */}
       {showVoteModal && (
         <div className="modal-backdrop" onClick={() => setShowVoteModal(false)}>
           <div
@@ -919,7 +935,12 @@ function PalmaresView({ showFlash, user }) {
               </button>
             </div>
             <div className="modal-body" style={{ overflowY: "auto" }}>
-              <div className="photo-grid">
+              <div
+                className="photo-grid"
+                style={{
+                  gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
+                }}
+              >
                 {(data.allSubmissions || []).map((sub) => (
                   <div
                     key={sub.id}
@@ -1031,11 +1052,8 @@ function PalmaresView({ showFlash, user }) {
                 </div>
               ) : (
                 <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "1rem",
-                  }}
+                  className="photo-grid"
+                  style={{ gridTemplateColumns: "1fr" }}
                 >
                   {voteCounts
                     .sort((a, b) => b.votes - a.votes)
@@ -1043,76 +1061,56 @@ function PalmaresView({ showFlash, user }) {
                       <div
                         key={idx}
                         className="card"
-                        style={{ padding: "1rem" }}
+                        style={{
+                          padding: "1rem",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "1rem",
+                          flexWrap: "wrap",
+                        }}
                       >
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "1rem",
-                            flexWrap: "wrap",
-                          }}
-                        >
-                          {vote.photoUrl && (
-                            <img
-                              src={vote.photoUrl}
-                              alt=""
+                        {vote.photoUrl && (
+                          <img
+                            src={vote.photoUrl}
+                            alt=""
+                            style={{
+                              width: "60px",
+                              height: "60px",
+                              objectFit: "cover",
+                              borderRadius: "8px",
+                            }}
+                          />
+                        )}
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 700 }}>
+                            {vote.anonymousId}
+                          </div>
+                          {vote.author && (
+                            <div
                               style={{
-                                width: "60px",
-                                height: "60px",
-                                objectFit: "cover",
-                                borderRadius: "8px",
+                                fontSize: ".75rem",
+                                color: "var(--ink-muted)",
                               }}
-                            />
-                          )}
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontWeight: 700 }}>
-                              {vote.anonymousId}
+                            >
+                              {vote.author}
                             </div>
-                            {vote.author && (
-                              <div
-                                style={{
-                                  fontSize: ".75rem",
-                                  color: "var(--ink-muted)",
-                                }}
-                              >
-                                {vote.author}
-                              </div>
-                            )}
-                            {vote.categoryName && (
-                              <div
-                                style={{
-                                  fontSize: ".7rem",
-                                  color: "var(--ink-faint)",
-                                }}
-                              >
-                                {vote.categoryName}
-                              </div>
-                            )}
-                          </div>
-                          <div>
-                            <span
-                              className="badge badge-amber"
-                              style={{
-                                fontSize: "1rem",
-                                padding: ".3rem 1rem",
-                              }}
-                            >
-                              {vote.votes} voix
-                            </span>
-                          </div>
+                          )}
                         </div>
-                        {isAdmin && (
-                          <div
-                            style={{ marginTop: ".75rem", textAlign: "right" }}
+                        <div>
+                          <span
+                            className="badge badge-amber"
+                            style={{ fontSize: "1rem", padding: ".3rem 1rem" }}
                           >
-                            <button
-                              className="btn btn-sm btn-primary"
-                              onClick={() => handleFinalize(vote.submissionId)}
-                            >
-                              🏆 Finaliser avec cette photo
-                            </button>
-                          </div>
+                            {vote.votes} voix
+                          </span>
+                        </div>
+                        {isJuror && (
+                          <button
+                            className="btn btn-sm btn-primary"
+                            onClick={() => handleFinalize(vote.submissionId)}
+                          >
+                            🏆 Finaliser
+                          </button>
                         )}
                       </div>
                     ))}
