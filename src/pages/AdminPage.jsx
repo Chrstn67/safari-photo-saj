@@ -1738,30 +1738,102 @@ function AdminPalmaresDisplay({
         </div>
       </div>
 
+      {/* 4. Coup de cœur du jury - Version ADMIN avec détails */}
       <div className="section">
         <div className="section-header">
           <div className="section-title">❤️ Coup de cœur du jury</div>
         </div>
-        {data.topFavorite ? (
-          <div className="card" style={{ textAlign: "center" }}>
-            <div style={{ fontSize: "2.5rem", marginBottom: ".5rem" }}>❤️</div>
-            <div
-              style={{
-                fontFamily: "'DM Serif Display', serif",
-                fontSize: "1.2rem",
-                color: "var(--red)",
-              }}
-            >
-              {data.topFavorite.anonymousId}
-            </div>
-            <div style={{ fontSize: ".8rem", color: "var(--ink-muted)" }}>
-              {data.topFavorite.author && `par ${data.topFavorite.author}`}
-              {data.topFavorite.categoryName &&
-                ` · ${data.topFavorite.categoryName}`}
-            </div>
-            <div className="badge badge-amber" style={{ marginTop: ".5rem" }}>
-              {data.topFavorite.totalFavorites} coup(s) de cœur
-            </div>
+        {data.favoriteCounts && data.favoriteCounts.length > 0 ? (
+          <div
+            style={{ display: "flex", flexDirection: "column", gap: "1rem" }}
+          >
+            {data.favoriteCounts.map((fav, idx) => (
+              <div key={idx} className="card" style={{ padding: "1rem" }}>
+                <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
+                  {fav.photoUrl ? (
+                    <img
+                      src={fav.photoUrl}
+                      alt=""
+                      style={{
+                        width: "120px",
+                        height: "120px",
+                        objectFit: "cover",
+                        borderRadius: "8px",
+                      }}
+                    />
+                  ) : (
+                    <div
+                      style={{
+                        width: "120px",
+                        height: "120px",
+                        background: "var(--sand-dark)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        borderRadius: "8px",
+                      }}
+                    >
+                      📷
+                    </div>
+                  )}
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 700, fontSize: "1.1rem" }}>
+                      {fav.photographerName || fav.anonymousId}
+                    </div>
+                    <div
+                      style={{ fontSize: ".8rem", color: "var(--ink-muted)" }}
+                    >
+                      {fav.categoryName}
+                    </div>
+                    <div
+                      className="badge badge-amber"
+                      style={{ marginTop: ".5rem", display: "inline-block" }}
+                    >
+                      {fav.count} coup(s) de cœur
+                    </div>
+                  </div>
+                </div>
+                {/* Détail des jurés qui ont voté */}
+                {fav.jurors && fav.jurors.length > 0 && (
+                  <div
+                    style={{
+                      marginTop: "1rem",
+                      paddingTop: "1rem",
+                      borderTop: "1px solid var(--sand-border)",
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: ".75rem",
+                        fontWeight: 600,
+                        color: "var(--ink-muted)",
+                        marginBottom: ".5rem",
+                      }}
+                    >
+                      Voté par :
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: ".5rem",
+                      }}
+                    >
+                      {fav.jurors.map((juror, jIdx) => (
+                        <span
+                          key={jIdx}
+                          className="badge badge-ink"
+                          style={{ fontSize: ".7rem" }}
+                        >
+                          {juror.name} -{" "}
+                          {new Date(juror.votedAt).toLocaleDateString("fr-FR")}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         ) : (
           <div className="info-banner banner-amber">

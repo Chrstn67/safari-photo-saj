@@ -1051,10 +1051,9 @@ function PalmaresView({ showFlash, user }) {
                           color: "#fff",
                           fontSize: ".7rem",
                           textAlign: "center",
-                          width: "100%",
                         }}
                       >
-                        {sub.author || sub.anonymous_id}
+                        {sub.anonymous_id}
                       </div>
                     </div>
                   </div>

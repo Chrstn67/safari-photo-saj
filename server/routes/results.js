@@ -1,4 +1,4 @@
-// backend/routes/results.js
+// backend/routes/results.js - Version CORRIGÉE avec anonymat strict
 import express from "express";
 import supabase from "../utils/supabase.js";
 import { requireAuth, requireAdmin, requireJuror } from "../middleware/auth.js";
@@ -10,12 +10,12 @@ const router = express.Router();
 // FONCTION DE CALCUL DES MOYENNES
 // ════════════════════════════════════════════════════════════════
 async function computeAverages(categoryId) {
-  const { data: submissions, error: subError } = await supabase
+  const { data: submissions } = await supabase
     .from("submissions")
     .select("id, anonymous_id, display_order, user_id")
     .eq("category_id", categoryId);
 
-  if (subError || !submissions?.length) return [];
+  if (!submissions?.length) return [];
 
   const results = [];
 
@@ -36,7 +36,6 @@ async function computeAverages(categoryId) {
     const avg = jurorTotals.length
       ? jurorTotals.reduce((a, b) => a + b, 0) / jurorTotals.length
       : 0;
-    const total = jurorTotals.reduce((a, b) => a + b, 0);
 
     results.push({
       submissionId: sub.id,
@@ -44,7 +43,7 @@ async function computeAverages(categoryId) {
       displayOrder: sub.display_order,
       userId: sub.user_id,
       average: Math.round(avg * 100) / 100,
-      totalScore: total,
+      totalScore: jurorTotals.reduce((a, b) => a + b, 0),
       jurorCount: jurorTotals.length,
     });
   }
@@ -107,7 +106,6 @@ router.post("/compute", requireAuth, requireAdmin, async (req, res) => {
 
       for (let i = 0; i < ranked.length; i++) {
         const r = ranked[i];
-
         const { data: newResult } = await supabase
           .from("results")
           .insert({
@@ -122,7 +120,6 @@ router.post("/compute", requireAuth, requireAdmin, async (req, res) => {
           })
           .select()
           .single();
-
         allResults.push(newResult);
       }
     }
@@ -229,7 +226,8 @@ router.post("/unpublish", requireAuth, requireAdmin, async (req, res) => {
 });
 
 // ════════════════════════════════════════════════════════════════
-// GET /api/results/palmares - Version CORRIGÉE avec photos pour coups de cœur
+// GET /api/results/palmares - AVEC ANONYMAT STRICT
+// Les noms des participants ne sont visibles que si les résultats sont publiés
 // ════════════════════════════════════════════════════════════════
 router.get("/palmares", requireAuth, async (req, res) => {
   const isAdmin = req.user.role === "admin";
@@ -242,19 +240,24 @@ router.get("/palmares", requireAuth, async (req, res) => {
       .select("is_published, jurors_can_view")
       .limit(1)
       .maybeSingle();
+
     const jurorsCanView = settings?.jurors_can_view === true;
     const isPublished = settings?.is_published === true;
 
-    let canView = false;
-    if (isAdmin) canView = true;
-    else if (isJuror) canView = jurorsCanView;
-    else if (isParticipant) canView = isPublished;
+    // Droit de voir les noms des photographes
+    const canSeePhotographerNames =
+      isAdmin || (isJuror && jurorsCanView) || (isParticipant && isPublished);
 
-    if (!canView) {
+    let canViewResults = false;
+    if (isAdmin) canViewResults = true;
+    else if (isJuror) canViewResults = jurorsCanView;
+    else if (isParticipant) canViewResults = isPublished;
+
+    if (!canViewResults) {
       return res.status(403).json({ error: "Palmarès non disponible" });
     }
 
-    // Récupérer les résultats avec les infos utilisateur
+    // Récupérer les résultats
     const { data: results } = await supabase
       .from("results")
       .select(
@@ -284,97 +287,173 @@ router.get("/palmares", requireAuth, async (req, res) => {
             photoUrl = signed?.signedUrl;
           } catch (err) {}
         }
+
+        // ANONYMISATION : ne montrer le nom que si autorisé
+        const author =
+          canSeePhotographerNames && r.submissions?.users
+            ? `${r.submissions.users.first_name} ${r.submissions.users.last_name}`
+            : null;
+
         return {
           ...r,
-          author: r.submissions?.users
-            ? `${r.submissions.users.first_name} ${r.submissions.users.last_name}`
-            : null,
+          author,
           submissions: { ...r.submissions, photoUrl },
         };
       }),
     );
 
-    // Classement général par photographe
+    // Classement général (toujours anonyme tant que non publié)
     const userScores = {};
     resultsWithUrls.forEach((r) => {
       const author = r.author;
-      if (!author) return;
-      if (!userScores[author])
-        userScores[author] = { name: author, total: 0, finalists: 0 };
-      userScores[author].total += r.average_score || 0;
-      if (r.rank === 1) userScores[author].finalists++;
+      if (!author) {
+        // Si anonyme, utiliser anonymous_id
+        const key = r.submissions?.anonymous_id || `Photo ${r.submissions?.id}`;
+        if (!userScores[key])
+          userScores[key] = { name: key, total: 0, finalists: 0 };
+        userScores[key].total += r.average_score || 0;
+        if (r.rank === 1) userScores[key].finalists++;
+      } else {
+        if (!userScores[author])
+          userScores[author] = { name: author, total: 0, finalists: 0 };
+        userScores[author].total += r.average_score || 0;
+        if (r.rank === 1) userScores[author].finalists++;
+      }
     });
     const generalRanking = Object.values(userScores).sort(
       (a, b) => b.total - a.total,
     );
-    const bestPhotographer = generalRanking[0] || null;
+    const bestPhotographer = canSeePhotographerNames
+      ? generalRanking[0] || null
+      : null;
 
     // ════════════════════════════════════════════════════════════════
-    // COUPS DE CŒUR - AVEC PHOTOS ET NOMS DES PHOTOGRAPHES
+    // COUPS DE CŒUR - Pour ADMIN seulement
     // ════════════════════════════════════════════════════════════════
-    const { data: favorites } = await supabase.from("favorites").select(`
-        id, submission_id, category_id, created_at,
-        submissions!favorites_submission_id_fkey (
-          id, anonymous_id,
-          users!submissions_user_id_fkey (id, first_name, last_name),
-          categories!submissions_category_id_fkey (id, name),
-          photos!submissions_photo_id_fkey (storage_path)
-        )
-      `);
+    let favoriteCounts = [];
+    let favoritesWithJurors = [];
 
-    // Construire la liste des coups de cœur avec photos
-    const favoriteItems = await Promise.all(
-      (favorites || []).map(async (fav) => {
-        let photoUrl = null;
-        const storagePath = fav.submissions?.photos?.storage_path;
-        if (storagePath) {
-          try {
-            const { data: signed } = await supabase.storage
-              .from("photos")
-              .createSignedUrl(storagePath, 3600);
-            photoUrl = signed?.signedUrl;
-          } catch (err) {}
+    if (isAdmin) {
+      // Pour l'admin : voir tous les coups de cœur avec les noms des jurés et des photographes
+      const { data: favorites } = await supabase.from("favorites").select(`
+          id, submission_id, category_id, created_at,
+          juror_id,
+          jurors:users!favorites_juror_id_fkey (first_name, last_name),
+          submissions!favorites_submission_id_fkey (
+            id, anonymous_id,
+            users!submissions_user_id_fkey (first_name, last_name),
+            categories!submissions_category_id_fkey (id, name),
+            photos!submissions_photo_id_fkey (storage_path)
+          )
+        `);
+
+      favoritesWithJurors = await Promise.all(
+        (favorites || []).map(async (fav) => {
+          let photoUrl = null;
+          const storagePath = fav.submissions?.photos?.storage_path;
+          if (storagePath) {
+            try {
+              const { data: signed } = await supabase.storage
+                .from("photos")
+                .createSignedUrl(storagePath, 3600);
+              photoUrl = signed?.signedUrl;
+            } catch (err) {}
+          }
+          return {
+            id: fav.id,
+            submissionId: fav.submission_id,
+            jurorName: fav.jurors
+              ? `${fav.jurors.first_name} ${fav.jurors.last_name}`
+              : "Inconnu",
+            photographerName: fav.submissions?.users
+              ? `${fav.submissions.users.first_name} ${fav.submissions.users.last_name}`
+              : fav.submissions?.anonymous_id,
+            anonymousId: fav.submissions?.anonymous_id,
+            categoryName: fav.submissions?.categories?.name,
+            photoUrl: photoUrl,
+            createdAt: fav.created_at,
+          };
+        }),
+      );
+
+      // Compter par photo
+      const countMap = new Map();
+      favoritesWithJurors.forEach((fav) => {
+        const key = fav.submissionId;
+        if (!countMap.has(key)) {
+          countMap.set(key, {
+            submissionId: fav.submissionId,
+            photographerName: fav.photographerName,
+            anonymousId: fav.anonymousId,
+            photoUrl: fav.photoUrl,
+            categoryName: fav.categoryName,
+            count: 0,
+            jurors: [],
+          });
         }
-        return {
-          id: fav.id,
-          submissionId: fav.submission_id,
-          categoryName: fav.submissions?.categories?.name,
-          anonymousId: fav.submissions?.anonymous_id,
-          author: fav.submissions?.users
-            ? `${fav.submissions.users.first_name} ${fav.submissions.users.last_name}`
-            : null,
-          photoUrl: photoUrl,
-          createdAt: fav.created_at,
-        };
-      }),
-    );
+        const entry = countMap.get(key);
+        entry.count++;
+        entry.jurors.push({ name: fav.jurorName, votedAt: fav.createdAt });
+      });
+      favoriteCounts = Array.from(countMap.values()).sort(
+        (a, b) => b.count - a.count,
+      );
+    } else {
+      // Pour les jurés et participants : version anonyme (juste les photos et le nombre)
+      const { data: favorites } = await supabase.from("favorites").select(`
+          id, submission_id,
+          submissions!favorites_submission_id_fkey (
+            id, anonymous_id,
+            categories!submissions_category_id_fkey (name),
+            photos!submissions_photo_id_fkey (storage_path)
+          )
+        `);
 
-    // Compter les coups de cœur par photo
-    const favoriteCountsMap = new Map();
-    favoriteItems.forEach((item) => {
-      const key = item.submissionId;
-      if (!favoriteCountsMap.has(key)) {
-        favoriteCountsMap.set(key, {
-          submissionId: item.submissionId,
-          anonymousId: item.anonymousId,
-          author: item.author,
-          photoUrl: item.photoUrl,
-          categoryName: item.categoryName,
-          count: 0,
-        });
-      }
-      favoriteCountsMap.get(key).count++;
-    });
+      favoritesWithJurors = await Promise.all(
+        (favorites || []).map(async (fav) => {
+          let photoUrl = null;
+          const storagePath = fav.submissions?.photos?.storage_path;
+          if (storagePath) {
+            try {
+              const { data: signed } = await supabase.storage
+                .from("photos")
+                .createSignedUrl(storagePath, 3600);
+              photoUrl = signed?.signedUrl;
+            } catch (err) {}
+          }
+          return {
+            submissionId: fav.submission_id,
+            anonymousId: fav.submissions?.anonymous_id,
+            categoryName: fav.submissions?.categories?.name,
+            photoUrl: photoUrl,
+          };
+        }),
+      );
 
-    const favoriteCounts = Array.from(favoriteCountsMap.values()).sort(
-      (a, b) => b.count - a.count,
-    );
+      const countMap = new Map();
+      favoritesWithJurors.forEach((fav) => {
+        const key = fav.submissionId;
+        if (!countMap.has(key)) {
+          countMap.set(key, {
+            submissionId: fav.submissionId,
+            anonymousId: fav.anonymousId,
+            photoUrl: fav.photoUrl,
+            categoryName: fav.categoryName,
+            count: 0,
+          });
+        }
+        countMap.get(key).count++;
+      });
+      favoriteCounts = Array.from(countMap.values()).sort(
+        (a, b) => b.count - a.count,
+      );
+    }
 
     // ════════════════════════════════════════════════════════════════
-    // PRIX DE L'ŒIL - Chaque juré vote parmi TOUTES les photos
+    // PRIX DE L'ŒIL
     // ════════════════════════════════════════════════════════════════
 
-    // Récupérer TOUTES les soumissions (toutes catégories confondues)
+    // Toutes les soumissions pour le vote
     const { data: allSubmissions } = await supabase.from("submissions").select(`
         id, anonymous_id, category_id,
         categories!submissions_category_id_fkey (name),
@@ -393,19 +472,22 @@ router.get("/palmares", requireAuth, async (req, res) => {
             photoUrl = signed?.signedUrl;
           } catch (err) {}
         }
+        // Pour les votes, on ne montre le nom que si autorisé
+        const showName = canSeePhotographerNames;
         return {
           id: sub.id,
           anonymous_id: sub.anonymous_id,
           categoryName: sub.categories?.name,
           photoUrl: photoUrl,
-          author: sub.users
-            ? `${sub.users.first_name} ${sub.users.last_name}`
-            : null,
+          author:
+            showName && sub.users
+              ? `${sub.users.first_name} ${sub.users.last_name}`
+              : null,
         };
       }),
     );
 
-    // Récupérer les votes du Prix de l'œil
+    // Récupérer les votes
     const { data: eyePrizeVotes } = await supabase
       .from("eye_prize_votes")
       .select("id, juror_id, submission_id, voted_at");
@@ -413,26 +495,28 @@ router.get("/palmares", requireAuth, async (req, res) => {
     // Compter les votes
     const voteCountsMap = new Map();
     (eyePrizeVotes || []).forEach((vote) => {
+      const sub = submissionsWithUrls.find((s) => s.id === vote.submission_id);
       const key = vote.submission_id;
-      if (!voteCountsMap.has(key)) {
-        const submission = submissionsWithUrls.find((s) => s.id === key);
+      if (!voteCountsMap.has(key) && sub) {
         voteCountsMap.set(key, {
           submissionId: key,
-          anonymousId: submission?.anonymous_id,
-          author: submission?.author,
-          photoUrl: submission?.photoUrl,
-          categoryName: submission?.categoryName,
+          anonymousId: sub.anonymous_id,
+          author: sub.author,
+          photoUrl: sub.photoUrl,
+          categoryName: sub.categoryName,
           votes: 0,
         });
       }
-      voteCountsMap.get(key).votes++;
+      if (voteCountsMap.has(key)) {
+        voteCountsMap.get(key).votes++;
+      }
     });
 
     const voteCounts = Array.from(voteCountsMap.values()).sort(
       (a, b) => b.votes - a.votes,
     );
 
-    // Vérifier s'il y a une égalité
+    // Vérifier l'égalité
     let hasTie = false;
     let tiedPhotos = [];
     if (
@@ -445,12 +529,12 @@ router.get("/palmares", requireAuth, async (req, res) => {
       tiedPhotos = voteCounts.filter((v) => v.votes === topVoteCount);
     }
 
-    // Récupérer le résultat finalisé
+    // Résultat finalisé
     const { data: finalResult } = await supabase
       .from("eye_prize_result")
       .select(
         `
-        id, total_votes, is_finalized, finalized_at, finalized_by,
+        id, total_votes, is_finalized, finalized_at,
         submissions!eye_prize_result_submission_id_fkey (
           id, anonymous_id,
           users!submissions_user_id_fkey (first_name, last_name),
@@ -489,6 +573,7 @@ router.get("/palmares", requireAuth, async (req, res) => {
     res.json({
       byCategory: resultsWithUrls || [],
       favoriteCounts: favoriteCounts,
+      favoritesWithJurors: isAdmin ? favoritesWithJurors : undefined,
       bestPhotographer: bestPhotographer,
       generalRanking: generalRanking,
       allSubmissions: submissionsWithUrls || [],
@@ -509,18 +594,78 @@ router.get("/palmares", requireAuth, async (req, res) => {
 });
 
 // ════════════════════════════════════════════════════════════════
-// PRIX DE L'ŒIL - ROUTES
+// POST /api/results/select-eye-prize - Route manquante !
+// ════════════════════════════════════════════════════════════════
+router.post(
+  "/select-eye-prize",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    const { submissionId } = req.body;
+    if (!submissionId) {
+      return res.status(400).json({ error: "submissionId requis" });
+    }
+
+    try {
+      // Vérifier que la soumission existe
+      const { data: submission } = await supabase
+        .from("submissions")
+        .select("id, anonymous_id")
+        .eq("id", submissionId)
+        .single();
+
+      if (!submission) {
+        return res.status(404).json({ error: "Soumission introuvable" });
+      }
+
+      // Supprimer l'ancien résultat
+      await supabase
+        .from("eye_prize_result")
+        .delete()
+        .neq("id", "00000000-0000-0000-0000-000000000000");
+
+      // Créer le nouveau résultat
+      const { data: result, error } = await supabase
+        .from("eye_prize_result")
+        .insert({
+          submission_id: submissionId,
+          total_votes: 0,
+          is_finalized: true,
+          finalized_at: new Date().toISOString(),
+          finalized_by: req.user.id,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      await log(
+        req.user.id,
+        "EYE_PRIZE_SELECTED",
+        "eye_prize_result",
+        submissionId,
+      );
+      res.json({
+        success: true,
+        message: "Prix de l'œil attribué avec succès !",
+      });
+    } catch (e) {
+      console.error("[select-eye-prize] Erreur:", e);
+      res.status(500).json({ error: e.message });
+    }
+  },
+);
+
+// ════════════════════════════════════════════════════════════════
+// PRIX DE L'ŒIL - AUTRES ROUTES
 // ════════════════════════════════════════════════════════════════
 
-// GET /api/results/eye-prize/votes
 router.get("/eye-prize/votes", requireAuth, requireJuror, async (req, res) => {
   try {
     const { data: votes } = await supabase.from("eye_prize_votes").select("*");
 
-    // Récupérer toutes les soumissions pour les détails
     const { data: submissions } = await supabase.from("submissions").select(`
         id, anonymous_id,
-        users!submissions_user_id_fkey (first_name, last_name),
         categories!submissions_category_id_fkey (name),
         photos!submissions_photo_id_fkey (storage_path)
       `);
@@ -539,9 +684,6 @@ router.get("/eye-prize/votes", requireAuth, requireJuror, async (req, res) => {
         return {
           id: sub.id,
           anonymousId: sub.anonymous_id,
-          author: sub.users
-            ? `${sub.users.first_name} ${sub.users.last_name}`
-            : null,
           categoryName: sub.categories?.name,
           photoUrl: photoUrl,
         };
@@ -552,16 +694,15 @@ router.get("/eye-prize/votes", requireAuth, requireJuror, async (req, res) => {
     (votes || []).forEach((vote) => {
       const sub = submissionsWithUrls.find((s) => s.id === vote.submission_id);
       const key = vote.submission_id;
-      if (!voteCounts[key]) {
+      if (!voteCounts[key] && sub) {
         voteCounts[key] = {
           submissionId: vote.submission_id,
-          anonymousId: sub?.anonymousId,
-          author: sub?.author,
-          photoUrl: sub?.photoUrl,
+          anonymousId: sub.anonymousId,
+          photoUrl: sub.photoUrl,
           votes: 0,
         };
       }
-      voteCounts[key].votes++;
+      if (voteCounts[key]) voteCounts[key].votes++;
     });
 
     const myVote = votes?.find((v) => v.juror_id === req.user.id);
@@ -581,16 +722,12 @@ router.get("/eye-prize/votes", requireAuth, requireJuror, async (req, res) => {
         ? { submission_id: myVote.submission_id, ...myVoteDetails }
         : null,
       finalResult,
-      totalJurors:
-        (await supabase.from("users").select("id").in("role_id", [2, 3])).data
-          ?.length || 0,
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-// POST /api/results/eye-prize/vote
 router.post("/eye-prize/vote", requireAuth, requireJuror, async (req, res) => {
   const { submissionId } = req.body;
   if (!submissionId)
@@ -632,14 +769,12 @@ router.post("/eye-prize/vote", requireAuth, requireJuror, async (req, res) => {
         })
         .eq("id", existingVote.id);
     } else {
-      await supabase
-        .from("eye_prize_votes")
-        .insert({
-          juror_id: req.user.id,
-          submission_id: submissionId,
-          category_id: submission.category_id,
-          voted_at: new Date().toISOString(),
-        });
+      await supabase.from("eye_prize_votes").insert({
+        juror_id: req.user.id,
+        submission_id: submissionId,
+        category_id: submission.category_id,
+        voted_at: new Date().toISOString(),
+      });
     }
 
     res.json({ success: true, message: "Vote enregistré !" });
@@ -648,7 +783,6 @@ router.post("/eye-prize/vote", requireAuth, requireJuror, async (req, res) => {
   }
 });
 
-// POST /api/results/eye-prize/resolve-tie
 router.post(
   "/eye-prize/resolve-tie",
   requireAuth,
@@ -697,7 +831,6 @@ router.post(
   },
 );
 
-// POST /api/results/eye-prize/finalize
 router.post(
   "/eye-prize/finalize",
   requireAuth,
@@ -715,9 +848,8 @@ router.post(
       });
 
       let winner = submissionId;
-      let maxVotes = 0;
-
       if (!winner) {
+        let maxVotes = 0;
         for (const [id, count] of Object.entries(counts)) {
           if (count > maxVotes) {
             maxVotes = count;
@@ -747,7 +879,6 @@ router.post(
   },
 );
 
-// POST /api/results/eye-prize/reset
 router.post("/eye-prize/reset", requireAuth, requireAdmin, async (req, res) => {
   try {
     await supabase
