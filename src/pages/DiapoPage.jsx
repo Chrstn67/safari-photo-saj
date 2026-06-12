@@ -13,7 +13,7 @@ export default function DiapoPage() {
   const [error, setError] = useState(null);
 
   // État du processus d'élimination
-  const [ceremonyStep, setCeremonyStep] = useState(0); // 0=waiting, 1=favorites, 2=categories, 3=ranking, 4=scores, 5=eyeprize, 6=end
+  const [ceremonyStep, setCeremonyStep] = useState(0);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [currentCategoryIndex, setCurrentCategoryIndex] = useState(0);
   const [revealedRanking, setRevealedRanking] = useState([]);
@@ -22,7 +22,7 @@ export default function DiapoPage() {
   const [showControls, setShowControls] = useState(true);
 
   // Références
-  const lastModeRef = useRef(null);
+  const lastPhotoIdRef = useRef(null);
   const intervalRef = useRef(null);
 
   // Raccourci clavier
@@ -31,11 +31,9 @@ export default function DiapoPage() {
       if (e.ctrlKey && e.shiftKey && e.key === "H") {
         setShowControls((prev) => !prev);
       }
-      // Flèche droite pour passer à l'étape suivante
       if (e.key === "ArrowRight" && showControls) {
         nextCeremonyStep();
       }
-      // Flèche gauche pour revenir en arrière
       if (e.key === "ArrowLeft" && showControls) {
         prevCeremonyStep();
       }
@@ -50,28 +48,58 @@ export default function DiapoPage() {
     rankingRevealedCount,
   ]);
 
-  const loadAllPhotos = useCallback(async (categoryId) => {
+  // Charger la photo en cours pour la notation
+  const loadCurrentPhoto = useCallback(async () => {
     try {
-      const data = await api.get(`/slideshow/all-photos/${categoryId}`);
-      setAllPhotos(data.photos || []);
+      const data = await api.get("/slideshow/current");
+      console.log("[DIAPO] Current photo data:", data);
+      if (data.hasPhoto && data.photo && data.photo.url) {
+        if (data.photo.id !== lastPhotoIdRef.current) {
+          lastPhotoIdRef.current = data.photo.id;
+          setCurrentPhoto(data.photo);
+          setCurrentCategory(data.category);
+          return true;
+        }
+        return true;
+      } else {
+        return false;
+      }
     } catch (e) {
-      console.error("[DIAPO] Erreur chargement toutes photos:", e);
+      console.error("[DIAPO] Erreur chargement photo:", e);
+      return false;
     }
   }, []);
 
+  // Charger toutes les photos d'une catégorie
+  const loadAllPhotos = useCallback(async (categoryId) => {
+    try {
+      console.log("[DIAPO] Loading all photos for category:", categoryId);
+      const data = await api.get(`/slideshow/all-photos/${categoryId}`);
+      console.log("[DIAPO] All photos loaded:", data.photos?.length);
+      setAllPhotos(data.photos || []);
+      return data.photos || [];
+    } catch (e) {
+      console.error("[DIAPO] Erreur chargement toutes photos:", e);
+      return [];
+    }
+  }, []);
+
+  // Charger les données des résultats
   const loadResultsData = useCallback(async () => {
     try {
       const data = await api.get("/slideshow/results-data");
+      console.log("[DIAPO] Results data:", data);
       setResultsData(data);
-      // Initialiser le processus d'élimination
       setCeremonyStep(0);
       setCurrentPhotoIndex(0);
       setCurrentCategoryIndex(0);
       setRevealedRanking([]);
       setRankingRevealedCount(0);
       setShowScores(false);
+      return data;
     } catch (e) {
       console.error("[DIAPO] Erreur chargement résultats:", e);
+      return null;
     }
   }, []);
 
@@ -79,14 +107,12 @@ export default function DiapoPage() {
   const nextCeremonyStep = () => {
     if (!resultsData) return;
 
-    // Étape 0: En attente - démarrer
     if (ceremonyStep === 0) {
-      setCeremonyStep(1); // Commencer les coups de cœur
+      setCeremonyStep(1);
       setCurrentPhotoIndex(0);
       return;
     }
 
-    // Étape 1: Coups de cœur - passer à la photo suivante ou à l'étape suivante
     if (ceremonyStep === 1) {
       const favorites = resultsData.favoriteCounts || [];
       if (currentPhotoIndex < favorites.length - 1) {
@@ -98,7 +124,6 @@ export default function DiapoPage() {
       return;
     }
 
-    // Étape 2: Prix par catégorie
     if (ceremonyStep === 2) {
       const winners = resultsData.categoryWinners || [];
       if (currentCategoryIndex < winners.length - 1) {
@@ -111,7 +136,6 @@ export default function DiapoPage() {
       return;
     }
 
-    // Étape 3: Classement sans scores (élimination progressive)
     if (ceremonyStep === 3) {
       const ranking = resultsData.generalRanking || [];
       const totalToReveal = ranking.length;
@@ -119,7 +143,6 @@ export default function DiapoPage() {
       if (rankingRevealedCount < totalToReveal) {
         const newCount = rankingRevealedCount + 1;
         setRankingRevealedCount(newCount);
-        // Révéler depuis la fin
         const revealed = ranking.slice(ranking.length - newCount);
         setRevealedRanking(revealed);
       } else {
@@ -128,14 +151,12 @@ export default function DiapoPage() {
       return;
     }
 
-    // Étape 4: Afficher les scores
     if (ceremonyStep === 4) {
       setShowScores(true);
       setCeremonyStep(5);
       return;
     }
 
-    // Étape 5: Prix de l'œil
     if (ceremonyStep === 5) {
       setCeremonyStep(6);
       return;
@@ -177,54 +198,71 @@ export default function DiapoPage() {
     }
   };
 
-  // Vérification du statut
+  // Vérification du statut - CORRIGÉE
   const checkStatus = useCallback(async () => {
     try {
+      console.log("[DIAPO] Checking status...");
       const statusData = await api.get("/slideshow/status");
+      console.log("[DIAPO] Status:", statusData);
 
-      if (statusData.resultsPublished) {
-        if (lastModeRef.current !== "results") {
-          lastModeRef.current = "results";
+      // 1. Vérifier si les résultats sont publiés
+      if (statusData.resultsPublished === true) {
+        if (mode !== "results") {
+          console.log("[DIAPO] Switching to results mode");
           await loadResultsData();
           setMode("results");
         }
         return;
       }
 
-      if (statusData.hasOpenSession && statusData.hasCurrentPhoto) {
-        const data = await api.get("/slideshow/current");
-        if (data.hasPhoto && data.photo) {
-          setCurrentPhoto(data.photo);
-          setCurrentCategory(data.category);
-          setMode("notation");
-          lastModeRef.current = "notation";
+      // 2. Vérifier s'il y a une session ouverte avec une photo
+      if (statusData.hasOpenSession === true) {
+        const hasPhoto = await loadCurrentPhoto();
+
+        if (hasPhoto && currentPhoto) {
+          if (mode !== "notation") {
+            console.log("[DIAPO] Switching to notation mode");
+            setMode("notation");
+          }
+        } else if (mode !== "notation_waiting") {
+          setMode("notation_waiting");
         }
         return;
       }
 
-      if (statusData.hasCompletedSession && lastModeRef.current !== "gallery") {
-        lastModeRef.current = "gallery";
-        if (statusData.completedCategoryId) {
-          await loadAllPhotos(statusData.completedCategoryId);
-          setMode("gallery");
+      // 3. Vérifier s'il y a une session terminée (galerie)
+      if (
+        statusData.hasCompletedSession === true &&
+        statusData.completedCategoryId
+      ) {
+        if (mode !== "gallery") {
+          console.log("[DIAPO] Switching to gallery mode");
+          const photos = await loadAllPhotos(statusData.completedCategoryId);
+          if (photos && photos.length > 0) {
+            setMode("gallery");
+          } else {
+            setMode("waiting");
+          }
         }
         return;
       }
 
-      if (lastModeRef.current !== "waiting") {
+      // 4. Sinon, mode attente
+      if (mode !== "waiting") {
+        console.log("[DIAPO] Switching to waiting mode");
         setMode("waiting");
-        lastModeRef.current = "waiting";
       }
     } catch (e) {
-      console.error("[DIAPO] Erreur:", e);
+      console.error("[DIAPO] Erreur status:", e);
       setError(e.message);
       setMode("error");
     }
-  }, [loadAllPhotos, loadResultsData]);
+  }, [loadCurrentPhoto, loadAllPhotos, loadResultsData, mode, currentPhoto]);
 
+  // Polling toutes les 2 secondes
   useEffect(() => {
     checkStatus();
-    const interval = setInterval(checkStatus, 3000);
+    const interval = setInterval(checkStatus, 2000);
     return () => clearInterval(interval);
   }, [checkStatus]);
 
@@ -260,8 +298,10 @@ export default function DiapoPage() {
     );
   };
 
-  // Mode Notation
-  if (mode === "notation" && currentPhoto) {
+  // ==================== RENDU DES MODES ====================
+
+  // Mode Notation - photo en cours
+  if (mode === "notation" && currentPhoto && currentPhoto.url) {
     return (
       <div className="diapo-container diapo-notation">
         <div className="diapo-photo-wrapper">
@@ -277,7 +317,22 @@ export default function DiapoPage() {
     );
   }
 
-  // Mode Galerie - TOUTES LES PHOTOS (seulement les photos)
+  // Mode Notation - en attente de photo
+  if (mode === "notation_waiting") {
+    return (
+      <div className="diapo-container diapo-waiting">
+        <div className="waiting-content">
+          <div className="waiting-icon">📸</div>
+          <h1>Session de notation ouverte</h1>
+          <p>En attente de la première photo...</p>
+          <div className="spinner spinner-sm" />
+        </div>
+        <LogoutButton />
+      </div>
+    );
+  }
+
+  // Mode Galerie - TOUTES LES PHOTOS (seulement les photos, pas de texte)
   if (mode === "gallery" && allPhotos.length > 0) {
     return (
       <div className="diapo-container diapo-gallery">
@@ -288,44 +343,47 @@ export default function DiapoPage() {
         <div className="gallery-grid">
           {allPhotos.map((photo, idx) => (
             <div key={photo.id} className="gallery-item">
-              <img src={photo.url} alt={`Photo ${idx + 1}`} />
+              <img src={photo.url} alt="" />
             </div>
           ))}
         </div>
         <div className="diapo-status-badge">🎬 Fin de la notation</div>
-        {showControls && (
-          <div className="gallery-controls">
-            <button
-              className="nav-btn next-btn"
-              onClick={() => {
-                if (resultsData) setMode("results");
-                else loadResultsData();
-              }}
-            >
-              🏆 Voir les résultats ▶
-            </button>
-          </div>
-        )}
+        <button
+          className="next-results-btn"
+          onClick={async () => {
+            await loadResultsData();
+            setMode("results");
+          }}
+        >
+          🏆 Voir les résultats ▶
+        </button>
       </div>
     );
   }
 
-  // MODE RÉSULTATS - PROCESSUS D'ÉLIMINATION
+  // Mode Résultats - Processus d'élimination
   if (mode === "results" && resultsData) {
     const favorites = resultsData.favoriteCounts || [];
     const categoryWinners = resultsData.categoryWinners || [];
     const ranking = resultsData.generalRanking || [];
     const currentFavorite = favorites[currentPhotoIndex];
     const currentWinner = categoryWinners[currentCategoryIndex];
-
-    // Les deux derniers sont révélés ensemble
-    const isLastTwoRevealed =
-      rankingRevealedCount >= ranking.length - 1 && ranking.length > 2;
     const showLastTwoTogether =
       rankingRevealedCount === ranking.length - 1 && ranking.length > 2;
 
     return (
       <div className="diapo-container diapo-ceremony">
+        {/* ÉCRAN 0: PRÊT */}
+        {ceremonyStep === 0 && (
+          <div className="ceremony-screen">
+            <h1 className="ceremony-title">🏆 CÉRÉMONIE DES RÉSULTATS 🏆</h1>
+            <div className="ceremony-start">
+              <div className="start-icon">🎬</div>
+              <p>Appuyez sur "Commencer" pour démarrer la cérémonie</p>
+            </div>
+          </div>
+        )}
+
         {/* ÉCRAN 1: COUPS DE CŒUR */}
         {ceremonyStep === 1 && currentFavorite && (
           <div className="ceremony-screen">
@@ -355,9 +413,6 @@ export default function DiapoPage() {
             <div className="ceremony-winner-id">
               {currentWinner.anonymousId}
             </div>
-            <div className="ceremony-winner-score">
-              {currentWinner.averageScore?.toFixed(1)}/20
-            </div>
             <div className="ceremony-counter">
               {currentCategoryIndex + 1} / {categoryWinners.length}
             </div>
@@ -378,13 +433,11 @@ export default function DiapoPage() {
                   const isLastTwo =
                     showLastTwoTogether &&
                     (actualRank === 1 || actualRank === 2);
-                  const showScore = false; // Pas encore de scores
 
                   return (
                     <div
                       key={item.anonymousId}
                       className={`ranking-elimination-item ${actualRank === 1 ? "rank-1" : actualRank === 2 ? "rank-2" : actualRank === 3 ? "rank-3" : ""}`}
-                      style={{ animationDelay: `${idx * 0.15}s` }}
                     >
                       <div className="rank-number">
                         {actualRank === 1 && "🥇"}
@@ -393,7 +446,7 @@ export default function DiapoPage() {
                         {actualRank > 3 && `${actualRank}e`}
                       </div>
                       <div className="rank-name">{item.anonymousId}</div>
-                      {!isLastTwo && !showScore && (
+                      {!isLastTwo && (
                         <div className="rank-placeholder">??? pts</div>
                       )}
                     </div>
@@ -403,11 +456,6 @@ export default function DiapoPage() {
             {showLastTwoTogether && (
               <div className="ceremony-announce">
                 ✨ Les deux finalistes sont dévoilés ! ✨
-              </div>
-            )}
-            {rankingRevealedCount === ranking.length && (
-              <div className="ceremony-announce">
-                🎯 Tous les candidats sont classés !
               </div>
             )}
           </div>
@@ -441,7 +489,7 @@ export default function DiapoPage() {
         {ceremonyStep === 5 && (
           <div className="ceremony-screen">
             <h1 className="ceremony-title">👁️ PRIX DE L'ŒIL 👁️</h1>
-            {resultsData.eyePrize ? (
+            {resultsData.eyePrize && resultsData.eyePrize.url ? (
               <div className="ceremony-eyeprize">
                 <div className="ceremony-photo">
                   <img src={resultsData.eyePrize.url} alt="" />
@@ -459,7 +507,7 @@ export default function DiapoPage() {
             ) : (
               <div className="ceremony-placeholder">
                 <div className="placeholder-icon">👁️</div>
-                <p>Sélection en cours...</p>
+                <p>Le jury délibère...</p>
               </div>
             )}
             <div className="ceremony-oral-announce">
@@ -474,13 +522,11 @@ export default function DiapoPage() {
             <div className="end-icon">🏆</div>
             <h1 className="ceremony-title">FIN DE LA CÉRÉMONIE</h1>
             <p className="end-message">Merci à tous les participants !</p>
-            <p className="end-sub">Rendez-vous pour la prochaine édition</p>
           </div>
         )}
 
-        {/* Indicateur d'étape */}
         <div className="ceremony-step-indicator">
-          {ceremonyStep === 0 && <span>⏸️ En attente</span>}
+          {ceremonyStep === 0 && <span>⏸️ Prêt</span>}
           {ceremonyStep === 1 && (
             <span>
               ❤️ Coups de cœur ({currentPhotoIndex + 1}/{favorites.length})
@@ -488,8 +534,7 @@ export default function DiapoPage() {
           )}
           {ceremonyStep === 2 && (
             <span>
-              🏆 Prix par catégorie ({currentCategoryIndex + 1}/
-              {categoryWinners.length})
+              🏆 Prix ({currentCategoryIndex + 1}/{categoryWinners.length})
             </span>
           )}
           {ceremonyStep === 3 && (
@@ -517,16 +562,46 @@ export default function DiapoPage() {
     );
   }
 
-  // Chargement ou attente
+  // Chargement
+  if (mode === "loading") {
+    return (
+      <div className="diapo-container diapo-waiting">
+        <div className="waiting-content">
+          <div className="spinner spinner-lg" />
+          <p>Chargement du diaporama...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Erreur
+  if (mode === "error") {
+    return (
+      <div className="diapo-container diapo-waiting">
+        <div className="waiting-content">
+          <div className="waiting-icon">⚠️</div>
+          <h1>Erreur de connexion</h1>
+          <p>{error || "Impossible de charger le diaporama."}</p>
+          <button
+            className="retry-btn"
+            onClick={() => window.location.reload()}
+          >
+            🔄 Réessayer
+          </button>
+        </div>
+        <LogoutButton />
+      </div>
+    );
+  }
+
+  // Attente par défaut
   return (
     <div className="diapo-container diapo-waiting">
       <div className="waiting-content">
         <div className="waiting-icon">📺</div>
         <h1>Diaporama en attente</h1>
         <p>La session n'a pas encore commencé.</p>
-        <p className="waiting-note">
-          Rafraîchissement automatique toutes les 3s
-        </p>
+        <p className="waiting-note">Actualisation automatique...</p>
       </div>
       <LogoutButton />
     </div>
