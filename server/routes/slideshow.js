@@ -11,44 +11,137 @@ router.use(requireAuth, requireDiapo);
 // GET /api/slideshow/current - Photo en cours de notation
 router.get("/current", async (req, res) => {
   try {
-    const { data: openSession } = await supabase
+    console.log("[SLIDESHOW] Récupération de la photo en cours...");
+
+    // Récupérer la session ouverte avec toutes les infos
+    const { data: openSession, error: sessionError } = await supabase
       .from("deliberation_sessions")
       .select(
         `
+        id,
         category_id,
-        categories(id, name),
+        status,
         current_photo_id,
-        current_photo:submissions!current_photo_id(
+        categories!deliberation_sessions_category_id_fkey (
+          id, 
+          name
+        ),
+        current_photo:submissions!current_photo_id (
           id,
-          photos(storage_path)
+          anonymous_id,
+          display_order,
+          photo_id,
+          photos:photo_id (
+            storage_path,
+            filename
+          )
         )
       `,
       )
       .eq("status", "open")
-      .single();
+      .maybeSingle();
 
-    if (!openSession?.current_photo?.photos?.storage_path) {
+    if (sessionError) {
+      console.error("[SLIDESHOW] Erreur session:", sessionError);
+      return res.json({
+        hasPhoto: false,
+        photo: null,
+        category: null,
+        error: sessionError.message,
+      });
+    }
+
+    console.log("[SLIDESHOW] Session trouvée:", openSession ? "oui" : "non");
+
+    if (!openSession) {
       return res.json({ hasPhoto: false, photo: null, category: null });
     }
 
+    // Vérifier si current_photo existe
+    if (!openSession.current_photo_id) {
+      console.log("[SLIDESHOW] Pas de photo courante");
+      return res.json({
+        hasPhoto: false,
+        photo: null,
+        category: openSession.categories?.name,
+      });
+    }
+
+    // Vérifier si la photo est chargée correctement
+    if (!openSession.current_photo) {
+      console.log("[SLIDESHOW] Rechargement de la photo manquante...");
+      // Recharger la soumission avec la photo
+      const { data: submission, error: subError } = await supabase
+        .from("submissions")
+        .select(
+          `
+          id,
+          anonymous_id,
+          display_order,
+          photo_id,
+          photos!submissions_photo_id_fkey (
+            storage_path,
+            filename
+          )
+        `,
+        )
+        .eq("id", openSession.current_photo_id)
+        .single();
+
+      if (subError || !submission) {
+        console.error("[SLIDESHOW] Erreur rechargement submission:", subError);
+        return res.json({
+          hasPhoto: false,
+          photo: null,
+          category: openSession.categories?.name,
+        });
+      }
+
+      openSession.current_photo = submission;
+    }
+
+    const storagePath = openSession.current_photo.photos?.storage_path;
+    console.log("[SLIDESHOW] Storage path:", storagePath);
+
+    if (!storagePath) {
+      console.log("[SLIDESHOW] Pas de storage path");
+      return res.json({
+        hasPhoto: false,
+        photo: null,
+        category: openSession.categories?.name,
+      });
+    }
+
+    // Générer URL signée
     let url = null;
     try {
-      const { data: signed } = await supabase.storage
+      const { data: signed, error: signedError } = await supabase.storage
         .from("photos")
-        .createSignedUrl(openSession.current_photo.photos.storage_path, 3600);
-      url = signed?.signedUrl;
+        .createSignedUrl(storagePath, 3600);
+
+      if (signedError) {
+        console.error("[SLIDESHOW] Erreur URL signée:", signedError);
+      } else {
+        url = signed?.signedUrl;
+        console.log("[SLIDESHOW] URL générée avec succès");
+      }
     } catch (err) {
-      console.error("Erreur URL signée:", err);
+      console.error("[SLIDESHOW] Exception URL signée:", err);
     }
 
     res.json({
       hasPhoto: true,
-      photo: { id: openSession.current_photo.id, url },
+      photo: {
+        id: openSession.current_photo.id,
+        url: url,
+        anonymous_id: openSession.current_photo.anonymous_id,
+        display_order: openSession.current_photo.display_order,
+      },
       category: openSession.categories?.name || null,
     });
   } catch (e) {
-    console.error("[SLIDESHOW_CURRENT]", e);
-    res.status(500).json({ error: e.message });
+    console.error("[SLIDESHOW_CURRENT] Exception:", e);
+    res.status(500).json({ error: e.message, stack: e.stack });
   }
 });
 
@@ -57,32 +150,50 @@ router.get("/all-photos/:categoryId", async (req, res) => {
   const { categoryId } = req.params;
 
   try {
-    const { data: submissions } = await supabase
+    console.log(
+      "[SLIDESHOW] Récupération de toutes les photos pour catégorie:",
+      categoryId,
+    );
+
+    const { data: submissions, error: subError } = await supabase
       .from("submissions")
       .select(
         `
         id,
         display_order,
-        photos(storage_path)
+        photos!submissions_photo_id_fkey (
+          storage_path
+        )
       `,
       )
       .eq("category_id", categoryId)
-      .order("display_order");
+      .order("display_order", { ascending: true });
 
-    if (!submissions?.length) {
+    if (subError) {
+      console.error("[SLIDESHOW] Erreur récupération soumissions:", subError);
       return res.json({ photos: [] });
     }
+
+    if (!submissions?.length) {
+      console.log("[SLIDESHOW] Aucune soumission trouvée");
+      return res.json({ photos: [] });
+    }
+
+    console.log("[SLIDESHOW] Nombre de soumissions:", submissions.length);
 
     const photosWithUrls = await Promise.all(
       submissions.map(async (sub, idx) => {
         let url = null;
-        if (sub.photos?.storage_path) {
+        const storagePath = sub.photos?.storage_path;
+        if (storagePath) {
           try {
             const { data: signed } = await supabase.storage
               .from("photos")
-              .createSignedUrl(sub.photos.storage_path, 3600);
+              .createSignedUrl(storagePath, 3600);
             url = signed?.signedUrl;
-          } catch (err) {}
+          } catch (err) {
+            console.error("Erreur URL pour photo:", err);
+          }
         }
         return {
           id: sub.id,
@@ -95,6 +206,49 @@ router.get("/all-photos/:categoryId", async (req, res) => {
     res.json({ photos: photosWithUrls });
   } catch (e) {
     console.error("[SLIDESHOW_ALL_PHOTOS]", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/slideshow/status - Vérifier l'état de la session
+router.get("/status", async (req, res) => {
+  try {
+    // Vérifier s'il y a une session ouverte
+    const { data: openSession } = await supabase
+      .from("deliberation_sessions")
+      .select("id, category_id, status, current_photo_id, categories(name)")
+      .eq("status", "open")
+      .maybeSingle();
+
+    // Vérifier s'il y a une session terminée
+    const { data: completedSession } = await supabase
+      .from("deliberation_sessions")
+      .select("id, category_id, status")
+      .eq("status", "completed")
+      .maybeSingle();
+
+    // Vérifier si les résultats sont publiés
+    const { data: resultsStatus } = await supabase
+      .from("results")
+      .select("is_published")
+      .limit(1)
+      .maybeSingle();
+
+    res.json({
+      hasOpenSession: !!openSession,
+      openSession: openSession
+        ? {
+            id: openSession.id,
+            categoryId: openSession.category_id,
+            categoryName: openSession.categories?.name,
+            hasCurrentPhoto: !!openSession.current_photo_id,
+          }
+        : null,
+      hasCompletedSession: !!completedSession,
+      resultsPublished: resultsStatus?.is_published || false,
+    });
+  } catch (e) {
+    console.error("[SLIDESHOW_STATUS]", e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -188,27 +342,27 @@ router.get("/results-data", async (req, res) => {
     // Prix par catégorie (vainqueurs)
     const categoryWinners = [];
     const seenCategories = new Set();
-    (results || []).forEach((r) => {
+    for (const r of results || []) {
       if (r.rank === 1 && !seenCategories.has(r.category_id)) {
         seenCategories.add(r.category_id);
         let url = null;
         if (r.submissions?.photos?.storage_path) {
-          supabase.storage
-            .from("photos")
-            .createSignedUrl(r.submissions.photos.storage_path, 3600)
-            .then(({ data }) => {
-              url = data?.signedUrl;
-            })
-            .catch(() => {});
+          try {
+            const { data: signed } = await supabase.storage
+              .from("photos")
+              .createSignedUrl(r.submissions.photos.storage_path, 3600);
+            url = signed?.signedUrl;
+          } catch (err) {}
         }
         categoryWinners.push({
           categoryId: r.category_id,
           categoryName: r.categories?.name,
           anonymousId: r.submissions?.anonymous_id,
           averageScore: r.average_score,
+          url,
         });
       }
-    });
+    }
 
     // Prix de l'œil
     const { data: eyePrize } = await supabase
@@ -227,14 +381,16 @@ router.get("/results-data", async (req, res) => {
 
     let eyePrizeWithUrl = null;
     if (eyePrize?.submissions?.photos?.storage_path) {
-      const { data: signed } = await supabase.storage
-        .from("photos")
-        .createSignedUrl(eyePrize.submissions.photos.storage_path, 3600);
-      eyePrizeWithUrl = {
-        anonymousId: eyePrize.submissions.anonymous_id,
-        categoryName: eyePrize.submissions.categories?.name,
-        url: signed?.signedUrl,
-      };
+      try {
+        const { data: signed } = await supabase.storage
+          .from("photos")
+          .createSignedUrl(eyePrize.submissions.photos.storage_path, 3600);
+        eyePrizeWithUrl = {
+          anonymousId: eyePrize.submissions.anonymous_id,
+          categoryName: eyePrize.submissions.categories?.name,
+          url: signed?.signedUrl,
+        };
+      } catch (err) {}
     }
 
     res.json({
