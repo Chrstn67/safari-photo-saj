@@ -1,8 +1,8 @@
 // frontend/src/pages/DiapoPage.jsx
 import { useState, useEffect, useCallback } from "react";
-import { useAuth } from "../hooks/useAuth.jsx";
-import { api } from "../utils/api.js";
-import { subscribe } from "../utils/realtime.js";
+import { useAuth } from "../../server/hooks/useAuth.jsx";
+import { api } from "../../server/utils/api.js";
+import { subscribe } from "../../server/utils/realtime.js";
 
 export default function DiapoPage() {
   const { user, logout } = useAuth();
