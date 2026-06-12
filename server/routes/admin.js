@@ -10,10 +10,6 @@
 // L'admin NE VOIT JAMAIS :
 //   ❌ À qui appartient une photo pendant les délibérations
 //   ❌ Le lien submission.user_id → nom en dehors du palmarès publié
-//
-// Toute requête qui joint submissions → users doit être protégée
-// par une vérification is_published OU être explicitement hors
-// contexte de délibération (ex : gestion des doublons de soumission).
 // ═══════════════════════════════════════════════════════════════
 
 import express from "express";
@@ -28,15 +24,9 @@ router.use(requireAuth, requireAdmin);
 
 /* ════════════════════════════════════════════════════════════════
    UTILISATEURS
-   L'admin voit les noms + rôles de tout le monde.
-   Il peut promouvoir/rétrograder sans restriction de rôle.
-   Il ne voit PAS les associations user→photo ici.
 ════════════════════════════════════════════════════════════════ */
 
-/* GET /api/admin/users
-   Retourne tous les utilisateurs avec leur rôle lisible.
-   Colonnes exposées : id, prénom, nom, rôle, actif, date création.
-   NB : password_hash n'est JAMAIS retourné.                       */
+/* GET /api/admin/users */
 router.get("/users", async (_req, res) => {
   const { data, error } = await supabase
     .from("users")
@@ -50,10 +40,7 @@ router.get("/users", async (_req, res) => {
   res.json(data);
 });
 
-/* POST /api/admin/users
-   Crée un compte directement (utile pour créer un 2e admin
-   ou un juré sans qu'il passe par l'inscription publique).
-   MDP transmis en clair → hashé côté serveur.                     */
+/* POST /api/admin/users */
 router.post("/users", async (req, res) => {
   const { firstName, lastName, password, roleId } = req.body;
 
@@ -87,14 +74,12 @@ router.post("/users", async (req, res) => {
   res.status(201).json(data);
 });
 
-/* PATCH /api/admin/users/:id/role
-   Point d'entrée PRINCIPAL pour élever les droits.
-   L'admin sélectionne un participant inscrit et lui donne
-   le rôle "juré" (2) ou "admin" (3).
-   → C'est ici que "je veux accorder les droits de juré" se passe. */
+/* PATCH /api/admin/users/:id/role - Modifier le rôle UNIQUEMENT */
 router.patch("/users/:id/role", async (req, res) => {
   const { id } = req.params;
   const { roleId } = req.body;
+
+  console.log("[PATCH /role] id:", id, "roleId:", roleId);
 
   if (![1, 2, 3].includes(parseInt(roleId))) {
     return res.status(400).json({ error: "Rôle invalide" });
@@ -115,10 +100,13 @@ router.patch("/users/:id/role", async (req, res) => {
     .from("users")
     .update({ role_id: parseInt(roleId) })
     .eq("id", id)
-    .select("id, first_name, last_name, role_id, roles(name)")
+    .select("id, first_name, last_name, role_id")
     .single();
 
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) {
+    console.error("[PATCH /role] Error:", error);
+    return res.status(500).json({ error: error.message });
+  }
 
   await log(req.user.id, "ADMIN_CHANGE_ROLE", "users", id, {
     from: before?.role_id,
@@ -128,19 +116,22 @@ router.patch("/users/:id/role", async (req, res) => {
   res.json(data);
 });
 
-/* PUT /api/admin/users/:id
-   Modification générale (prénom, nom, mdp, statut actif).
-   NE modifie PAS le rôle — utiliser PATCH /role ci-dessus.        */
+/* PUT /api/admin/users/:id - Modifier infos générales (sans rôle) */
 router.put("/users/:id", async (req, res) => {
   const { id } = req.params;
   const { firstName, lastName, isActive, password } = req.body;
   const updates = {};
 
+  console.log("[PUT /users/:id] id:", id, req.body);
+
   if (firstName !== undefined) updates.first_name = firstName.trim();
   if (lastName !== undefined) updates.last_name = lastName.trim();
   if (isActive !== undefined) updates.is_active = isActive;
-  if (password) updates.password_hash = await bcrypt.hash(password, 12);
+  if (password && password.length >= 6) {
+    updates.password_hash = await bcrypt.hash(password, 12);
+  }
 
+  // Ne pas modifier le rôle ici
   const { data, error } = await supabase
     .from("users")
     .update(updates)
@@ -148,7 +139,10 @@ router.put("/users/:id", async (req, res) => {
     .select("id, first_name, last_name, role_id, is_active")
     .single();
 
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) {
+    console.error("[PUT /users/:id] Error:", error);
+    return res.status(500).json({ error: error.message });
+  }
 
   await log(req.user.id, "ADMIN_UPDATE_USER", "users", id, {
     fields: Object.keys(updates).filter((k) => k !== "password_hash"),
@@ -156,99 +150,12 @@ router.put("/users/:id", async (req, res) => {
   res.json(data);
 });
 
-/* ── POST /api/admin/categories/:id/reset  — Réinitialiser une catégorie (supprimer toutes les soumissions) ── */
-router.post(
-  "/categories/:id/reset",
-  requireAuth,
-  requireAdmin,
-  async (req, res) => {
-    const { id } = req.params;
-
-    try {
-      // 1. Vérifier que la catégorie existe
-      const { data: category, error: catError } = await supabase
-        .from("categories")
-        .select("id, name")
-        .eq("id", id)
-        .single();
-
-      if (catError || !category) {
-        return res.status(404).json({ error: "Catégorie introuvable" });
-      }
-
-      // 2. Récupérer toutes les soumissions de cette catégorie
-      const { data: submissions, error: subError } = await supabase
-        .from("submissions")
-        .select("id, photo_id")
-        .eq("category_id", id);
-
-      if (subError) throw subError;
-
-      const submissionIds = (submissions || []).map((s) => s.id);
-      const photoIds = (submissions || []).map((s) => s.photo_id);
-
-      // 3. Supprimer les scores
-      if (submissionIds.length > 0) {
-        await supabase
-          .from("scores")
-          .delete()
-          .in("submission_id", submissionIds);
-        await supabase
-          .from("jury_validations")
-          .delete()
-          .in("submission_id", submissionIds);
-        await supabase
-          .from("favorites")
-          .delete()
-          .in("submission_id", submissionIds);
-        await supabase
-          .from("results")
-          .delete()
-          .in("submission_id", submissionIds);
-      }
-
-      // 4. Supprimer les soumissions
-      await supabase.from("submissions").delete().eq("category_id", id);
-
-      // 5. Réinitialiser les photos (is_submitted = false)
-      if (photoIds.length > 0) {
-        await supabase
-          .from("photos")
-          .update({ is_submitted: false })
-          .in("id", photoIds);
-      }
-
-      // 6. Supprimer la session de délibération si elle existe
-      await supabase
-        .from("deliberation_sessions")
-        .delete()
-        .eq("category_id", id);
-
-      await log(req.user.id, "CATEGORY_RESET", "categories", id, {
-        categoryName: category.name,
-        submissionsReset: submissionIds.length,
-        photosReset: photoIds.length,
-      });
-
-      res.json({
-        success: true,
-        message: `Catégorie "${category.name}" réinitialisée`,
-        resetCount: submissionIds.length,
-      });
-    } catch (e) {
-      console.error("[CATEGORY_RESET] Erreur:", e);
-      res.status(500).json({ error: e.message });
-    }
-  },
-);
-
-/* DELETE /api/admin/users/:id
-   Supprime un utilisateur et toutes ses données associées (cascade)
-   Gère le cas où l'utilisateur a des photos dans des sessions actives */
+/* DELETE /api/admin/users/:id - Suppression complète */
 router.delete("/users/:id", async (req, res) => {
   const { id } = req.params;
 
-  // Vérifier qu'on ne supprime pas son propre compte
+  console.log("[DELETE /users/:id] id:", id);
+
   if (id === req.user.id) {
     return res
       .status(400)
@@ -259,23 +166,21 @@ router.delete("/users/:id", async (req, res) => {
     // 1. Récupérer toutes les soumissions de l'utilisateur
     const { data: submissions } = await supabase
       .from("submissions")
-      .select("id")
+      .select("id, photo_id")
       .eq("user_id", id);
 
     const submissionIds = (submissions || []).map((s) => s.id);
+    const photoIds = (submissions || []).map((s) => s.photo_id);
 
-    // 2. IMPORTANT : Mettre à jour les sessions de délibération qui référencent ces soumissions
+    // 2. Mettre à jour les sessions de délibération
     if (submissionIds.length > 0) {
-      // Pour chaque session qui a current_photo_id dans les soumissions à supprimer
       const { data: sessionsToUpdate } = await supabase
         .from("deliberation_sessions")
         .select("id, category_id")
         .in("current_photo_id", submissionIds);
 
       if (sessionsToUpdate && sessionsToUpdate.length > 0) {
-        // Soit fermer la session, soit passer à la photo suivante
         for (const session of sessionsToUpdate) {
-          // Trouver une autre soumission dans la même catégorie
           const { data: otherSubmission } = await supabase
             .from("submissions")
             .select("id")
@@ -285,13 +190,11 @@ router.delete("/users/:id", async (req, res) => {
             .single();
 
           if (otherSubmission) {
-            // Passer à une autre photo
             await supabase
               .from("deliberation_sessions")
               .update({ current_photo_id: otherSubmission.id })
               .eq("id", session.id);
           } else {
-            // Plus aucune soumission → fermer la session
             await supabase
               .from("deliberation_sessions")
               .update({
@@ -305,8 +208,9 @@ router.delete("/users/:id", async (req, res) => {
       }
     }
 
-    // 3. Supprimer les références dans jury_validations
+    // 3. Supprimer les dépendances
     if (submissionIds.length > 0) {
+      await supabase.from("scores").delete().in("submission_id", submissionIds);
       await supabase
         .from("jury_validations")
         .delete()
@@ -322,16 +226,16 @@ router.delete("/users/:id", async (req, res) => {
         .in("submission_id", submissionIds);
     }
 
-    // 4. Supprimer les scores liés
-    if (submissionIds.length > 0) {
-      await supabase.from("scores").delete().in("submission_id", submissionIds);
-    }
+    // 4. Supprimer les scores où l'utilisateur est juré
     await supabase.from("scores").delete().eq("juror_id", id);
+    await supabase.from("jury_validations").delete().eq("juror_id", id);
+    await supabase.from("favorites").delete().eq("juror_id", id);
+    await supabase.from("notes").delete().eq("juror_id", id);
 
     // 5. Supprimer les soumissions
     await supabase.from("submissions").delete().eq("user_id", id);
 
-    // 6. Récupérer et supprimer les photos du storage
+    // 6. Supprimer les photos du storage
     const { data: photos } = await supabase
       .from("photos")
       .select("storage_path")
@@ -347,29 +251,22 @@ router.delete("/users/:id", async (req, res) => {
     // 7. Supprimer les photos
     await supabase.from("photos").delete().eq("user_id", id);
 
-    // 8. Supprimer les autres références
-    await supabase.from("jury_validations").delete().eq("juror_id", id);
-    await supabase.from("favorites").delete().eq("juror_id", id);
-    await supabase.from("notes").delete().eq("juror_id", id);
+    // 8. Supprimer l'audit log
     await supabase.from("audit_log").delete().eq("user_id", id);
 
-    // 9. Enfin, supprimer l'utilisateur
+    // 9. Supprimer l'utilisateur
     const { error } = await supabase.from("users").delete().eq("id", id);
 
     if (error) throw error;
 
     await log(req.user.id, "ADMIN_DELETE_USER", "users", id, {
-      targetId: id,
       submissionsDeleted: submissionIds.length,
       photosDeleted: photos?.length || 0,
     });
 
-    res.json({
-      success: true,
-      message: "Utilisateur et toutes ses données supprimés",
-    });
+    res.json({ success: true, message: "Utilisateur supprimé" });
   } catch (error) {
-    console.error("Erreur suppression utilisateur:", error);
+    console.error("[DELETE] Erreur:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -395,6 +292,7 @@ router.post("/categories", async (req, res) => {
     .select()
     .single();
   if (error) return res.status(500).json({ error: error.message });
+  await log(req.user.id, "ADMIN_CREATE_CATEGORY", "categories", data.id);
   res.status(201).json(data);
 });
 
@@ -426,6 +324,73 @@ router.delete("/categories/:id", async (req, res) => {
   res.json({ success: true });
 });
 
+/* POST /api/admin/categories/:id/reset */
+router.post("/categories/:id/reset", async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const { data: category, error: catError } = await supabase
+      .from("categories")
+      .select("id, name")
+      .eq("id", id)
+      .single();
+
+    if (catError || !category) {
+      return res.status(404).json({ error: "Catégorie introuvable" });
+    }
+
+    const { data: submissions, error: subError } = await supabase
+      .from("submissions")
+      .select("id, photo_id")
+      .eq("category_id", id);
+
+    if (subError) throw subError;
+
+    const submissionIds = (submissions || []).map((s) => s.id);
+    const photoIds = (submissions || []).map((s) => s.photo_id);
+
+    if (submissionIds.length > 0) {
+      await supabase.from("scores").delete().in("submission_id", submissionIds);
+      await supabase
+        .from("jury_validations")
+        .delete()
+        .in("submission_id", submissionIds);
+      await supabase
+        .from("favorites")
+        .delete()
+        .in("submission_id", submissionIds);
+      await supabase
+        .from("results")
+        .delete()
+        .in("submission_id", submissionIds);
+    }
+
+    await supabase.from("submissions").delete().eq("category_id", id);
+
+    if (photoIds.length > 0) {
+      await supabase
+        .from("photos")
+        .update({ is_submitted: false })
+        .in("id", photoIds);
+    }
+
+    await supabase.from("deliberation_sessions").delete().eq("category_id", id);
+
+    await log(req.user.id, "CATEGORY_RESET", "categories", id, {
+      categoryName: category.name,
+      submissionsReset: submissionIds.length,
+    });
+
+    res.json({
+      success: true,
+      message: `Catégorie "${category.name}" réinitialisée`,
+    });
+  } catch (e) {
+    console.error("[CATEGORY_RESET] Erreur:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 /* ════════════════════════════════════════════════════════════════
    CRITÈRES
 ════════════════════════════════════════════════════════════════ */
@@ -445,7 +410,7 @@ router.post("/criteria", async (req, res) => {
     .insert({
       name,
       description,
-      icon,
+      icon: icon || "📷",
       max_points: maxPoints || 5,
       weight: weight || 1,
       sort_order: sortOrder || 0,
@@ -494,7 +459,7 @@ router.get("/dashboard", async (_req, res) => {
     supabase.from("photos").select("*", { count: "exact", head: true }),
     supabase.from("submissions").select("*", { count: "exact", head: true }),
     supabase.from("deliberation_sessions").select("status, categories(name)"),
-    supabase.from("results").select("is_published").limit(1).single(),
+    supabase.from("results").select("is_published").limit(1).maybeSingle(),
   ]);
 
   const roleMap = { 1: 0, 2: 0, 3: 0 };
@@ -506,8 +471,8 @@ router.get("/dashboard", async (_req, res) => {
     participants: roleMap[1],
     jurors: roleMap[2],
     admins: roleMap[3],
-    totalPhotos: photos.count,
-    totalSubmissions: submissions.count,
+    totalPhotos: photos.count || 0,
+    totalSubmissions: submissions.count || 0,
     sessions: sessions.data || [],
     resultsPublished: results.data?.is_published || false,
   });
@@ -515,25 +480,21 @@ router.get("/dashboard", async (_req, res) => {
 
 /* ════════════════════════════════════════════════════════════════
    PHOTOS ADMIN
-   ⚠️  Cette liste NE retourne PAS les noms des propriétaires.
-   Elle est utilisée pour la gestion technique (taille, doublons).
-   Les noms sont masqués tant que les résultats ne sont pas publiés.
 ════════════════════════════════════════════════════════════════ */
 router.get("/photos", async (_req, res) => {
-  // Vérifier si les résultats sont publiés
   const { data: pub } = await supabase
     .from("results")
     .select("is_published")
     .eq("is_published", true)
     .limit(1)
-    .single();
+    .maybeSingle();
 
   const query = supabase
     .from("photos")
     .select(
       pub
-        ? "*, users(first_name, last_name)" // publié → on peut voir les noms
-        : "id, filename, mime_type, size_bytes, is_submitted, created_at", // non publié → anonyme
+        ? "*, users(first_name, last_name)"
+        : "id, filename, mime_type, size_bytes, is_submitted, created_at",
     )
     .order("created_at", { ascending: false });
 
@@ -556,90 +517,9 @@ router.delete("/photos/:id", async (req, res) => {
   }
   if (photo) await supabase.storage.from("photos").remove([photo.storage_path]);
   await supabase.from("photos").delete().eq("id", id);
-  await log(undefined, "ADMIN_DELETE_PHOTO", "photos", id);
+  await log(req.user.id, "ADMIN_DELETE_PHOTO", "photos", id);
   res.json({ success: true });
 });
-
-// Ajouter cette route dans admin.js
-
-// POST /api/admin/eye-prize/resolve-tie
-router.post(
-  "/eye-prize/resolve-tie",
-  requireAuth,
-  requireAdmin,
-  async (req, res) => {
-    const { winningSubmissionId } = req.body;
-
-    if (!winningSubmissionId) {
-      return res.status(400).json({ error: "winningSubmissionId requis" });
-    }
-
-    try {
-      // Récupérer les votes
-      const { data: votes } = await supabase
-        .from("eye_prize_votes")
-        .select("submission_id");
-
-      const counts = {};
-      (votes || []).forEach((v) => {
-        counts[v.submission_id] = (counts[v.submission_id] || 0) + 1;
-      });
-
-      const maxVotes = Math.max(...Object.values(counts));
-      const tiedSubmissions = Object.entries(counts)
-        .filter(([, count]) => count === maxVotes)
-        .map(([id]) => id);
-
-      if (!tiedSubmissions.includes(winningSubmissionId)) {
-        return res
-          .status(400)
-          .json({ error: "Cette photo n'est pas parmi les ex-aequo" });
-      }
-
-      // Supprimer l'ancien résultat
-      await supabase
-        .from("eye_prize_result")
-        .delete()
-        .neq("id", "00000000-0000-0000-0000-000000000000");
-
-      // Créer le nouveau résultat
-      const { data: result, error } = await supabase
-        .from("eye_prize_result")
-        .insert({
-          submission_id: winningSubmissionId,
-          total_votes: counts[winningSubmissionId],
-          is_finalized: true,
-          finalized_at: new Date().toISOString(),
-          finalized_by: req.user.id,
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      // Mettre à jour l'état
-      await supabase.from("eye_prize_state").upsert({
-        id: 1,
-        has_tie: false,
-        resolved_at: new Date().toISOString(),
-        resolved_by: req.user.id,
-        winning_submission_id: winningSubmissionId,
-      });
-
-      await log(
-        req.user.id,
-        "EYE_PRIZE_TIE_RESOLVED",
-        "eye_prize_result",
-        winningSubmissionId,
-      );
-
-      res.json({ success: true, message: "Égalité résolue avec succès !" });
-    } catch (e) {
-      console.error("[resolve-tie] Erreur:", e);
-      res.status(500).json({ error: e.message });
-    }
-  },
-);
 
 /* ════════════════════════════════════════════════════════════════
    AUDIT LOG

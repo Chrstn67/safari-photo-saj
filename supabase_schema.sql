@@ -156,47 +156,7 @@ CREATE TABLE public.eye_prize_selections (
   submission_id uuid NOT NULL UNIQUE,
   selected_by uuid,
   selected_at timestamp with time zone DEFAULT now(),
-  juror_votes jsonb DEFAULT '{}'::jsonb,
-  created_at timestamp with time zone DEFAULT now(),
-  updated_at timestamp with time zone DEFAULT now(),
   CONSTRAINT eye_prize_selections_pkey PRIMARY KEY (id),
   CONSTRAINT eye_prize_selections_submission_id_fkey FOREIGN KEY (submission_id) REFERENCES public.submissions(id),
   CONSTRAINT eye_prize_selections_selected_by_fkey FOREIGN KEY (selected_by) REFERENCES public.users(id)
-);
-CREATE TABLE public.eye_prize_votes (
-  id uuid NOT NULL DEFAULT uuid_generate_v4(),
-  juror_id uuid NOT NULL,
-  submission_id uuid NOT NULL,
-  category_id integer,
-  voted_at timestamp with time zone DEFAULT now(),
-  created_at timestamp with time zone DEFAULT now(),
-  CONSTRAINT eye_prize_votes_pkey PRIMARY KEY (id),
-  CONSTRAINT eye_prize_votes_submission_id_fkey FOREIGN KEY (submission_id) REFERENCES public.submissions(id),
-  CONSTRAINT eye_prize_votes_category_id_fkey FOREIGN KEY (category_id) REFERENCES public.categories(id),
-  CONSTRAINT eye_prize_votes_juror_id_fkey FOREIGN KEY (juror_id) REFERENCES public.users(id)
-);
-CREATE TABLE public.eye_prize_result (
-  id uuid NOT NULL DEFAULT uuid_generate_v4(),
-  submission_id uuid NOT NULL,
-  total_votes integer DEFAULT 0,
-  is_finalized boolean DEFAULT false,
-  finalized_at timestamp with time zone,
-  finalized_by uuid,
-  created_at timestamp with time zone DEFAULT now(),
-  updated_at timestamp with time zone DEFAULT now(),
-  CONSTRAINT eye_prize_result_pkey PRIMARY KEY (id),
-  CONSTRAINT eye_prize_result_submission_id_fkey FOREIGN KEY (submission_id) REFERENCES public.submissions(id),
-  CONSTRAINT eye_prize_result_finalized_by_fkey FOREIGN KEY (finalized_by) REFERENCES public.users(id)
-);
-CREATE TABLE public.eye_prize_state (
-  id integer NOT NULL DEFAULT 1 CHECK (id = 1),
-  has_tie boolean DEFAULT false,
-  resolved_at timestamp with time zone,
-  resolved_by uuid,
-  winning_submission_id uuid,
-  created_at timestamp with time zone DEFAULT now(),
-  updated_at timestamp with time zone DEFAULT now(),
-  CONSTRAINT eye_prize_state_pkey PRIMARY KEY (id),
-  CONSTRAINT eye_prize_state_resolved_by_fkey FOREIGN KEY (resolved_by) REFERENCES public.users(id),
-  CONSTRAINT eye_prize_state_winning_submission_id_fkey FOREIGN KEY (winning_submission_id) REFERENCES public.submissions(id)
 );

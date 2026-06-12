@@ -1,15 +1,6 @@
 // frontend/src/pages/AdminUsersTab.jsx
 // ═══════════════════════════════════════════════════════════════
 // GESTION DES UTILISATEURS — onglet admin
-//
-// L'admin VOIT :
-//   ✅ Tous les inscrits avec leur prénom / nom / rôle actuel
-//   ✅ Peut promouvoir un participant en juré (ou rétrograder)
-//   ✅ Peut créer un compte directement (sans inscription publique)
-//
-// L'admin NE VOIT PAS :
-//   ❌ Aucun lien user → photo ici
-//   ❌ Les photos soumises ne sont visibles qu'en délibération (anonymes)
 // ═══════════════════════════════════════════════════════════════
 
 import { useState, useEffect, useCallback } from "react";
@@ -23,7 +14,7 @@ const ROLES = {
 
 export default function AdminUsersTab({ showFlash }) {
   const [users, setUsers] = useState([]);
-  const [modal, setModal] = useState(null); // null | 'create' | {user}
+  const [modal, setModal] = useState(null);
   const [form, setForm] = useState({
     firstName: "",
     lastName: "",
@@ -31,7 +22,7 @@ export default function AdminUsersTab({ showFlash }) {
     roleId: "1",
   });
   const [loading, setLoading] = useState(false);
-  const [filter, setFilter] = useState("all"); // 'all' | '1' | '2' | '3'
+  const [filter, setFilter] = useState("all");
 
   const load = useCallback(async () => {
     try {
@@ -40,7 +31,7 @@ export default function AdminUsersTab({ showFlash }) {
     } catch (e) {
       showFlash("❌ " + e.message);
     }
-  }, []);
+  }, [showFlash]);
 
   useEffect(() => {
     load();
@@ -60,8 +51,7 @@ export default function AdminUsersTab({ showFlash }) {
 
     if (!confirm(msg)) return;
     try {
-      await api.put(`/admin/users/${user.id}`, { roleId: newRoleId }); // PATCH /role dans le backend
-      // on appelle le bon endpoint selon l'API
+      // Utiliser le bon endpoint PATCH /role
       await api.patch(`/admin/users/${user.id}/role`, { roleId: newRoleId });
       showFlash(`✅ ${user.first_name} est maintenant ${roleLabel}`);
       load();
@@ -82,11 +72,14 @@ export default function AdminUsersTab({ showFlash }) {
         showFlash(`✅ Compte créé — rôle : ${ROLES[form.roleId]?.label}`);
       } else {
         // Modification (sans toucher au rôle — utiliser les boutons dédiés)
-        await api.put(`/admin/users/${modal.id}`, {
+        const payload = {
           firstName: form.firstName,
           lastName: form.lastName,
-          ...(form.password ? { password: form.password } : {}),
-        });
+        };
+        if (form.password && form.password.length >= 6) {
+          payload.password = form.password;
+        }
+        await api.put(`/admin/users/${modal.id}`, payload);
         showFlash("✅ Informations mises à jour");
       }
       setModal(null);
@@ -146,7 +139,6 @@ export default function AdminUsersTab({ showFlash }) {
 
   return (
     <div style={{ paddingBottom: "2rem" }}>
-      {/* ── En-tête ── */}
       <div style={S.headerRow}>
         <div>
           <div style={S.sectionTitle}>Utilisateurs inscrits</div>
@@ -166,7 +158,6 @@ export default function AdminUsersTab({ showFlash }) {
         </button>
       </div>
 
-      {/* ── Filtres par rôle ── */}
       <div style={S.filterRow}>
         {[
           ["all", "Tous"],
@@ -184,7 +175,6 @@ export default function AdminUsersTab({ showFlash }) {
         ))}
       </div>
 
-      {/* ── Table ── */}
       <div style={S.panel}>
         {filtered.length === 0 && (
           <div style={S.empty}>Aucun utilisateur dans cette catégorie.</div>
@@ -194,7 +184,6 @@ export default function AdminUsersTab({ showFlash }) {
             key={u.id}
             style={{ ...S.userRow, opacity: u.is_active ? 1 : 0.55 }}
           >
-            {/* Identité */}
             <div style={S.userInfo}>
               <div style={S.userName}>
                 {u.first_name} {u.last_name}
@@ -209,7 +198,6 @@ export default function AdminUsersTab({ showFlash }) {
               </div>
             </div>
 
-            {/* Badge rôle actuel */}
             <span
               style={{
                 ...S.roleBadge,
@@ -220,9 +208,7 @@ export default function AdminUsersTab({ showFlash }) {
               {ROLES[u.role_id]?.label}
             </span>
 
-            {/* Actions */}
             <div style={S.actionGroup}>
-              {/* Promouvoir / rétrograder */}
               {u.role_id === 1 && (
                 <button
                   style={S.btnAccent}
@@ -241,8 +227,16 @@ export default function AdminUsersTab({ showFlash }) {
                   ↩ Participant
                 </button>
               )}
+              {u.role_id === 2 && (
+                <button
+                  style={S.btnNeutral}
+                  title="Promouvoir Admin"
+                  onClick={() => changeRole(u, 3)}
+                >
+                  ⭐ Admin
+                </button>
+              )}
 
-              {/* Modifier infos */}
               <button
                 style={S.btnIcon}
                 title="Modifier"
@@ -259,7 +253,6 @@ export default function AdminUsersTab({ showFlash }) {
                 ✏️
               </button>
 
-              {/* Activer / désactiver */}
               <button
                 style={S.btnIcon}
                 title={u.is_active ? "Désactiver" : "Activer"}
@@ -268,7 +261,6 @@ export default function AdminUsersTab({ showFlash }) {
                 {u.is_active ? "🔴" : "🟢"}
               </button>
 
-              {/* Supprimer */}
               <button
                 style={{ ...S.btnIcon, color: "#B84040" }}
                 title="Supprimer"
@@ -281,18 +273,15 @@ export default function AdminUsersTab({ showFlash }) {
         ))}
       </div>
 
-      {/* ── Légende anonymat ── */}
       <div style={S.anonymatBanner}>
         <span style={{ fontSize: "1rem" }}>🔒</span>
         <span>
           <strong>Anonymat garanti :</strong> vous voyez ici qui est inscrit et
           son rôle, mais <em>jamais</em> à qui appartient une photo pendant les
-          délibérations. Les noms ne sont révélés qu'après activation de la
-          publication des résultats.
+          délibérations.
         </span>
       </div>
 
-      {/* ── Modal créer / modifier ── */}
       {modal && (
         <div style={S.backdrop} onClick={() => setModal(null)}>
           <div style={S.modalBox} onClick={(e) => e.stopPropagation()}>
@@ -338,16 +327,6 @@ export default function AdminUsersTab({ showFlash }) {
                     <option value="2">Juré</option>
                     <option value="3">Admin</option>
                   </select>
-                  <div
-                    style={{
-                      fontSize: ".72rem",
-                      color: "#6B5E50",
-                      marginTop: ".2rem",
-                    }}
-                  >
-                    Pour les jurés créés ici, communiquez-leur le mot de passe
-                    en personne.
-                  </div>
                 </div>
               )}
 
@@ -385,7 +364,6 @@ export default function AdminUsersTab({ showFlash }) {
   );
 }
 
-/* ── Styles ── */
 const S = {
   headerRow: {
     display: "flex",
@@ -445,7 +423,6 @@ const S = {
     padding: ".75rem 1rem",
     borderBottom: "1px solid #EDE6D8",
     flexWrap: "wrap",
-    transition: "background .1s",
   },
   userInfo: { flex: 1, minWidth: 140 },
   userName: { fontWeight: 600, fontSize: ".9rem", color: "#1A1612" },
@@ -486,9 +463,6 @@ const S = {
     fontWeight: 600,
     cursor: "pointer",
     fontFamily: "inherit",
-    display: "flex",
-    alignItems: "center",
-    gap: ".3rem",
   },
   btnNeutral: {
     background: "#fff",
