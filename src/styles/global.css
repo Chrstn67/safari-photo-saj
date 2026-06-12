@@ -1108,16 +1108,16 @@ table {
   }
 }
 
-/*/* frontend/src/styles/global.css - Styles complets pour DiapoPage */
+/* frontend/src/styles/global.css - Styles DiapoPage */
 
 /* ============================================
-   DIAPORAMA PAGE - STYLES COMPLETS
+   DIAPORAMA - STYLES COMPLETS
    ============================================ */
 
 .diapo-container {
   position: fixed;
   inset: 0;
-  background: #0a0a0a;
+  background: linear-gradient(135deg, #0a0a1a 0%, #0f0f23 100%);
   z-index: 1000;
   display: flex;
   flex-direction: column;
@@ -1136,8 +1136,8 @@ table {
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 40px;
   color: #fff;
-  padding: 10px 20px;
-  font-size: 14px;
+  padding: 8px 18px;
+  font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -1147,7 +1147,6 @@ table {
 
 .diapo-logout:hover {
   background: rgba(255, 255, 255, 0.25);
-  border-color: rgba(255, 255, 255, 0.4);
   transform: scale(1.02);
 }
 
@@ -1161,8 +1160,8 @@ table {
   z-index: 1001;
   background: rgba(0, 0, 0, 0.8);
   backdrop-filter: blur(10px);
-  padding: 12px 20px;
-  border-radius: 60px;
+  padding: 10px 18px;
+  border-radius: 50px;
   border: 1px solid rgba(255, 215, 0, 0.3);
 }
 
@@ -1170,8 +1169,8 @@ table {
   background: rgba(255, 255, 255, 0.15);
   border: none;
   border-radius: 40px;
-  padding: 8px 20px;
-  font-size: 14px;
+  padding: 6px 18px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -1207,8 +1206,8 @@ table {
   backdrop-filter: blur(10px);
   border: 1px solid rgba(255, 215, 0, 0.3);
   border-radius: 40px;
-  padding: 10px 16px;
-  font-size: 12px;
+  padding: 8px 14px;
+  font-size: 11px;
   cursor: pointer;
   color: #ffd700;
   z-index: 1001;
@@ -1216,15 +1215,15 @@ table {
 }
 
 /* Indicateur d'étape */
-.step-indicator {
+.ceremony-step-indicator {
   position: fixed;
   top: 20px;
   right: 20px;
   background: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(10px);
-  padding: 8px 16px;
+  padding: 6px 14px;
   border-radius: 40px;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
   color: #ffd700;
   z-index: 1001;
@@ -1252,7 +1251,6 @@ table {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
-  border-radius: 8px;
 }
 
 .diapo-category {
@@ -1263,9 +1261,9 @@ table {
   background: rgba(0, 0, 0, 0.7);
   backdrop-filter: blur(10px);
   color: #ffd700;
-  padding: 10px 24px;
+  padding: 8px 20px;
   border-radius: 40px;
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 600;
   white-space: nowrap;
 }
@@ -1278,12 +1276,11 @@ table {
   background: rgba(0, 0, 0, 0.7);
   backdrop-filter: blur(10px);
   color: #ffd700;
-  padding: 8px 20px;
+  padding: 6px 16px;
   border-radius: 40px;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
   font-family: monospace;
-  letter-spacing: 1px;
 }
 
 .diapo-status-badge {
@@ -1292,71 +1289,17 @@ table {
   right: 20px;
   background: rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(5px);
-  padding: 6px 14px;
+  padding: 5px 12px;
   border-radius: 20px;
-  font-size: 12px;
+  font-size: 11px;
   color: #888;
 }
 
 /* ============================================
-   MODE ATTENTE
-   ============================================ */
-.diapo-waiting {
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-}
-
-.waiting-content {
-  text-align: center;
-  color: #fff;
-  padding: 20px;
-}
-
-.waiting-icon {
-  font-size: 64px;
-  margin-bottom: 20px;
-}
-
-.waiting-content h1 {
-  font-size: 28px;
-  margin-bottom: 12px;
-  color: #ffd700;
-}
-
-.waiting-content p {
-  color: #aaa;
-  margin-bottom: 8px;
-}
-
-.waiting-note {
-  font-size: 12px;
-  opacity: 0.6;
-  margin-top: 16px;
-}
-
-.retry-btn {
-  background: rgba(255, 215, 0, 0.2);
-  border: 1px solid #ffd700;
-  border-radius: 40px;
-  padding: 10px 24px;
-  margin-top: 20px;
-  color: #ffd700;
-  font-size: 14px;
-  cursor: pointer;
-  font-family: inherit;
-  transition: all 0.2s;
-}
-
-.retry-btn:hover {
-  background: rgba(255, 215, 0, 0.3);
-  transform: scale(1.02);
-}
-
-/* ============================================
-   MODE GALERIE (après notation)
+   MODE GALERIE
    ============================================ */
 .diapo-gallery {
   background: #0a0a0a;
-  padding: 0;
 }
 
 .gallery-header {
@@ -1371,7 +1314,7 @@ table {
 }
 
 .gallery-title {
-  font-size: 18px;
+  font-size: 16px;
   color: #fff;
   margin: 0;
   font-family: "DM Serif Display", serif;
@@ -1379,10 +1322,10 @@ table {
 
 .gallery-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 16px;
   padding: 24px;
-  max-width: 1600px;
+  max-width: 1400px;
   margin: 0 auto;
   width: 100%;
 }
@@ -1393,11 +1336,6 @@ table {
   overflow: hidden;
   background: #1a1a1a;
   border: 1px solid #333;
-  transition: transform 0.2s;
-}
-
-.gallery-item:hover {
-  transform: scale(1.02);
 }
 
 .gallery-item img {
@@ -1406,16 +1344,22 @@ table {
   object-fit: cover;
 }
 
+.gallery-controls {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+}
+
 /* ============================================
-   MODE RÉSULTATS
+   CÉRÉMONIE - PROCESSUS D'ÉLIMINATION
    ============================================ */
-.diapo-results {
+.diapo-ceremony {
   background: linear-gradient(135deg, #0a0a1a 0%, #0f0f23 100%);
-  justify-content: flex-start;
+  justify-content: center;
   overflow-y: auto;
 }
 
-.results-step {
+.ceremony-screen {
   width: 100%;
   min-height: 100vh;
   display: flex;
@@ -1425,133 +1369,88 @@ table {
   padding: 80px 24px 100px;
 }
 
-.results-title {
+.ceremony-title {
   font-family: "DM Serif Display", serif;
-  font-size: clamp(24px, 6vw, 42px);
+  font-size: clamp(20px, 5vw, 36px);
   color: #ffd700;
   text-align: center;
-  margin-bottom: 48px;
+  margin-bottom: 40px;
   letter-spacing: 2px;
-  text-shadow: 0 2px 10px rgba(255, 215, 0, 0.3);
 }
 
-/* Coups de cœur */
-.favorites-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 32px;
+.ceremony-photo {
+  max-width: 600px;
   width: 100%;
-  max-width: 1200px;
-}
-
-.favorite-card {
-  background: rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(10px);
-  border-radius: 24px;
-  overflow: hidden;
-  text-align: center;
-  padding: 20px;
-  transition: transform 0.3s;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.favorite-card:hover {
-  transform: translateY(-5px);
-}
-
-.favorite-card img {
-  width: 100%;
-  aspect-ratio: 1;
-  object-fit: cover;
-  border-radius: 16px;
-}
-
-.favorite-hearts {
-  margin-top: 16px;
-  font-size: 24px;
-  letter-spacing: 4px;
-}
-
-.favorite-count {
-  margin-top: 8px;
-  font-size: 14px;
-  color: #ff6b6b;
-  font-weight: 500;
-}
-
-/* Prix par catégorie */
-.winners-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 32px;
-  width: 100%;
-  max-width: 1200px;
-}
-
-.winner-card {
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(10px);
-  border-radius: 24px;
-  overflow: hidden;
-  text-align: center;
-  padding: 24px;
-  border: 1px solid rgba(255, 215, 0, 0.3);
-}
-
-.winner-category {
-  font-size: 18px;
-  font-weight: bold;
-  color: #ffd700;
-  margin-bottom: 16px;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-}
-
-.winner-card img {
-  width: 100%;
-  aspect-ratio: 1;
-  object-fit: cover;
-  border-radius: 16px;
-  margin-bottom: 16px;
-}
-
-.winner-id {
-  font-size: 16px;
-  font-weight: 600;
-  color: #fff;
-  font-family: monospace;
-  margin-bottom: 8px;
-}
-
-.winner-score {
-  font-size: 18px;
-  font-weight: bold;
-  color: #ffd700;
-}
-
-/* Classement */
-.ranking-list {
-  width: 100%;
-  max-width: 700px;
   margin: 0 auto;
 }
 
-.ranking-item {
+.ceremony-photo img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: contain;
+  border-radius: 20px;
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.ceremony-hearts {
+  text-align: center;
+  margin-top: 20px;
+  font-size: 32px;
+  letter-spacing: 8px;
+}
+
+.ceremony-category-name {
+  font-size: 20px;
+  font-weight: bold;
+  color: #ffd700;
+  margin-bottom: 24px;
+  text-align: center;
+}
+
+.ceremony-winner-id {
+  margin-top: 20px;
+  font-size: 18px;
+  font-weight: 600;
+  color: #fff;
+  font-family: monospace;
+  text-align: center;
+}
+
+.ceremony-winner-score {
+  margin-top: 8px;
+  font-size: 20px;
+  font-weight: bold;
+  color: #ffd700;
+  text-align: center;
+}
+
+.ceremony-counter {
+  margin-top: 30px;
+  font-size: 14px;
+  color: #888;
+}
+
+/* Classement par élimination */
+.ranking-elimination {
+  width: 100%;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.ranking-elimination-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 14px 24px;
+  padding: 12px 20px;
   margin-bottom: 8px;
   background: rgba(255, 255, 255, 0.06);
-  border-radius: 60px;
-  backdrop-filter: blur(5px);
-  transition: all 0.2s;
+  border-radius: 50px;
   animation: fadeInUp 0.4s ease forwards;
   opacity: 0;
 }
 
-.ranking-item.rank-1 {
+.ranking-elimination-item.rank-1 {
   background: linear-gradient(
     135deg,
     rgba(255, 215, 0, 0.2),
@@ -1560,7 +1459,7 @@ table {
   border: 1px solid rgba(255, 215, 0, 0.4);
 }
 
-.ranking-item.rank-2 {
+.ranking-elimination-item.rank-2 {
   background: linear-gradient(
     135deg,
     rgba(192, 192, 192, 0.15),
@@ -1569,7 +1468,7 @@ table {
   border: 1px solid rgba(192, 192, 192, 0.3);
 }
 
-.ranking-item.rank-3 {
+.ranking-elimination-item.rank-3 {
   background: linear-gradient(
     135deg,
     rgba(205, 127, 50, 0.15),
@@ -1578,79 +1477,87 @@ table {
   border: 1px solid rgba(205, 127, 50, 0.3);
 }
 
-.ranking-position {
-  font-size: 28px;
-  min-width: 65px;
+.rank-number {
+  font-size: 24px;
+  min-width: 55px;
   text-align: center;
 }
 
-.ranking-name {
+.rank-name {
   flex: 1;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 500;
   color: #fff;
   font-family: monospace;
 }
 
-.ranking-placeholder {
-  font-size: 16px;
+.rank-placeholder {
+  font-size: 14px;
   color: #666;
   letter-spacing: 2px;
-  font-weight: 500;
 }
 
-.ranking-score {
-  font-size: 20px;
+/* Classement avec scores */
+.ranking-with-scores {
+  width: 100%;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.ranking-score-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 24px;
+  margin-bottom: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 50px;
+}
+
+.ranking-score-item.rank-1 {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 215, 0, 0.2),
+    rgba(255, 215, 0, 0.05)
+  );
+  border: 1px solid rgba(255, 215, 0, 0.4);
+}
+
+.ranking-score-item.rank-2 {
+  background: linear-gradient(
+    135deg,
+    rgba(192, 192, 192, 0.15),
+    rgba(192, 192, 192, 0.05)
+  );
+  border: 1px solid rgba(192, 192, 192, 0.3);
+}
+
+.ranking-score-item.rank-3 {
+  background: linear-gradient(
+    135deg,
+    rgba(205, 127, 50, 0.15),
+    rgba(205, 127, 50, 0.05)
+  );
+  border: 1px solid rgba(205, 127, 50, 0.3);
+}
+
+.rank-score {
+  font-size: 18px;
   font-weight: bold;
   color: #ffd700;
 }
 
 /* Prix de l'œil */
-.eyeprize-container {
-  display: flex;
-  justify-content: center;
-  width: 100%;
-}
-
-.eyeprize-card {
-  background: linear-gradient(
-    135deg,
-    rgba(255, 215, 0, 0.15),
-    rgba(255, 215, 0, 0.05)
-  );
-  border-radius: 40px;
-  overflow: hidden;
-  text-align: center;
-  padding: 32px;
+.ceremony-eyeprize {
   max-width: 500px;
   width: 100%;
-  border: 2px solid rgba(255, 215, 0, 0.4);
-}
-
-.eyeprize-card img {
-  width: 100%;
-  aspect-ratio: 1;
-  object-fit: cover;
-  border-radius: 24px;
-  margin-bottom: 20px;
-}
-
-.eyeprize-id {
-  font-size: 20px;
-  font-weight: 700;
-  color: #ffd700;
-  margin-bottom: 8px;
-  font-family: monospace;
-}
-
-.eyeprize-category {
-  font-size: 14px;
-  color: #aaa;
-  margin-bottom: 16px;
+  text-align: center;
 }
 
 .eyeprize-badge {
   display: inline-block;
+  margin-top: 20px;
   padding: 8px 20px;
   background: rgba(255, 215, 0, 0.2);
   border-radius: 40px;
@@ -1659,32 +1566,29 @@ table {
   font-weight: 600;
 }
 
-.eyeprize-placeholder {
-  text-align: center;
-  padding: 40px;
-}
-
-.placeholder-icon {
-  font-size: 48px;
-  margin-bottom: 16px;
-}
-
-.oral-announce {
+.ceremony-oral-announce {
   margin-top: 48px;
   text-align: center;
   animation: pulse 1.5s ease-in-out infinite;
 }
 
-.oral-announce p {
+.ceremony-oral-announce p {
   font-size: 18px;
   color: #ffd700;
   font-weight: 500;
 }
 
-/* Fin de cérémonie */
-.end-ceremony {
+.ceremony-announce {
+  margin-top: 32px;
   text-align: center;
-  animation: fadeInUp 0.8s ease forwards;
+  font-size: 14px;
+  color: #ffd700;
+  opacity: 0.8;
+}
+
+/* Fin */
+.ceremony-end {
+  text-align: center;
 }
 
 .end-icon {
@@ -1703,14 +1607,6 @@ table {
   font-size: 14px;
   color: #888;
   margin-top: 12px;
-}
-
-.step-hint {
-  margin-top: 32px;
-  font-size: 14px;
-  color: #ffd700;
-  opacity: 0.8;
-  text-align: center;
 }
 
 /* Animations */
@@ -1745,159 +1641,117 @@ table {
   }
 }
 
-/* ============================================
-   RESPONSIVE
-   ============================================ */
+/* Attente */
+.diapo-waiting {
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+}
+
+.waiting-content {
+  text-align: center;
+  color: #fff;
+  padding: 20px;
+}
+
+.waiting-icon {
+  font-size: 64px;
+  margin-bottom: 20px;
+}
+
+.waiting-content h1 {
+  font-size: 28px;
+  margin-bottom: 12px;
+  color: #ffd700;
+}
+
+.waiting-content p {
+  color: #aaa;
+}
+
+.waiting-note {
+  font-size: 12px;
+  opacity: 0.6;
+  margin-top: 16px;
+}
+
+/* Responsive */
 @media (max-width: 768px) {
   .diapo-logout {
     bottom: 12px;
     left: 12px;
-    padding: 6px 14px;
-    font-size: 11px;
+    padding: 5px 12px;
+    font-size: 10px;
   }
 
   .diapo-nav-controls {
     bottom: 12px;
     right: 12px;
-    padding: 8px 12px;
+    padding: 6px 12px;
     gap: 8px;
   }
 
   .nav-btn {
-    padding: 5px 12px;
+    padding: 4px 12px;
     font-size: 11px;
   }
 
-  .step-indicator {
+  .ceremony-step-indicator {
     top: 12px;
     right: 12px;
     padding: 4px 10px;
     font-size: 9px;
   }
 
-  .results-title {
-    margin-bottom: 32px;
+  .ceremony-title {
+    margin-bottom: 30px;
   }
 
-  .favorites-grid,
-  .winners-grid {
-    gap: 16px;
+  .rank-number {
+    font-size: 18px;
+    min-width: 45px;
   }
 
-  .favorite-card,
-  .winner-card {
-    padding: 16px;
-  }
-
-  .ranking-item {
-    padding: 10px 16px;
-    gap: 10px;
-  }
-
-  .ranking-position {
-    font-size: 20px;
-    min-width: 50px;
-  }
-
-  .ranking-name {
+  .rank-name {
     font-size: 12px;
   }
 
-  .ranking-placeholder {
-    font-size: 12px;
+  .rank-placeholder {
+    font-size: 11px;
   }
 
-  .ranking-score {
+  .rank-score {
     font-size: 14px;
   }
 
-  .eyeprize-card {
-    padding: 20px;
+  .ranking-elimination-item,
+  .ranking-score-item {
+    padding: 10px 16px;
   }
 
-  .eyeprize-id {
-    font-size: 16px;
-  }
-
-  .oral-announce p {
+  .ceremony-oral-announce p {
     font-size: 14px;
   }
 
   .gallery-grid {
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
     gap: 10px;
     padding: 16px;
-  }
-
-  .gallery-header {
-    padding: 12px 16px;
-  }
-
-  .gallery-title {
-    font-size: 14px;
-  }
-
-  .diapo-category {
-    font-size: 12px;
-    padding: 6px 16px;
-    bottom: 20px;
-    white-space: nowrap;
-  }
-
-  .diapo-anonymous-id {
-    font-size: 11px;
-    padding: 5px 12px;
-    top: 12px;
   }
 }
 
 @media (max-width: 480px) {
-  .ranking-item {
+  .ranking-elimination-item,
+  .ranking-score-item {
     flex-wrap: wrap;
-    border-radius: 16px;
-    padding: 12px;
+    border-radius: 20px;
+    gap: 8px;
   }
 
-  .ranking-position {
+  .rank-number {
     width: 100%;
     text-align: left;
-    margin-bottom: 5px;
   }
 
-  .ranking-name {
+  .rank-name {
     width: 100%;
-    margin-bottom: 5px;
-  }
-
-  .gallery-grid {
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  }
-}
-
-/* Loading spinner */
-.spinner {
-  width: 24px;
-  height: 24px;
-  border: 2px solid rgba(255, 255, 255, 0.2);
-  border-top-color: #ffd700;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-.spinner-sm {
-  width: 16px;
-  height: 16px;
-  border-width: 2px;
-}
-
-.spinner-lg {
-  width: 40px;
-  height: 40px;
-  border-width: 3px;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
   }
 }

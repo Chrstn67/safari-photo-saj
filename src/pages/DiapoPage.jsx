@@ -12,49 +12,43 @@ export default function DiapoPage() {
   const [resultsData, setResultsData] = useState(null);
   const [error, setError] = useState(null);
 
-  // Mode résultats contrôlé manuellement
-  const [resultsStep, setResultsStep] = useState(0); // 0=favorites, 1=categoryWinners, 2=ranking, 3=scores, 4=eyePrize
-  const [currentRevealIndex, setCurrentRevealIndex] = useState(0);
-  const [rankingRevealIndex, setRankingRevealIndex] = useState(0);
-  const [scoresRevealed, setScoresRevealed] = useState(false);
-
-  // Contrôles visibles par défaut en mode résultats
+  // État du processus d'élimination
+  const [ceremonyStep, setCeremonyStep] = useState(0); // 0=waiting, 1=favorites, 2=categories, 3=ranking, 4=scores, 5=eyeprize, 6=end
+  const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+  const [currentCategoryIndex, setCurrentCategoryIndex] = useState(0);
+  const [revealedRanking, setRevealedRanking] = useState([]);
+  const [rankingRevealedCount, setRankingRevealedCount] = useState(0);
+  const [showScores, setShowScores] = useState(false);
   const [showControls, setShowControls] = useState(true);
 
   // Références
-  const lastPhotoIdRef = useRef(null);
   const lastModeRef = useRef(null);
+  const intervalRef = useRef(null);
 
-  // Raccourci clavier pour masquer/afficher les contrôles (optionnel)
+  // Raccourci clavier
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.ctrlKey && e.shiftKey && e.key === "H") {
         setShowControls((prev) => !prev);
       }
+      // Flèche droite pour passer à l'étape suivante
+      if (e.key === "ArrowRight" && showControls) {
+        nextCeremonyStep();
+      }
+      // Flèche gauche pour revenir en arrière
+      if (e.key === "ArrowLeft" && showControls) {
+        prevCeremonyStep();
+      }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
-
-  const loadCurrentPhoto = useCallback(async () => {
-    try {
-      const data = await api.get("/slideshow/current");
-      if (data.hasPhoto && data.photo) {
-        if (data.photo.id !== lastPhotoIdRef.current) {
-          lastPhotoIdRef.current = data.photo.id;
-        }
-        setCurrentPhoto(data.photo);
-        setCurrentCategory(data.category);
-        return true;
-      } else {
-        setCurrentPhoto(null);
-        return false;
-      }
-    } catch (e) {
-      console.error("[DIAPO] Erreur chargement photo:", e);
-      return false;
-    }
-  }, []);
+  }, [
+    showControls,
+    ceremonyStep,
+    currentPhotoIndex,
+    currentCategoryIndex,
+    rankingRevealedCount,
+  ]);
 
   const loadAllPhotos = useCallback(async (categoryId) => {
     try {
@@ -69,97 +63,121 @@ export default function DiapoPage() {
     try {
       const data = await api.get("/slideshow/results-data");
       setResultsData(data);
-      // Réinitialiser l'état des résultats
-      setResultsStep(0);
-      setCurrentRevealIndex(0);
-      setRankingRevealIndex(0);
-      setScoresRevealed(false);
-      setShowControls(true);
+      // Initialiser le processus d'élimination
+      setCeremonyStep(0);
+      setCurrentPhotoIndex(0);
+      setCurrentCategoryIndex(0);
+      setRevealedRanking([]);
+      setRankingRevealedCount(0);
+      setShowScores(false);
     } catch (e) {
       console.error("[DIAPO] Erreur chargement résultats:", e);
     }
   }, []);
 
-  // Navigation manuelle dans les résultats
-  const nextStep = () => {
+  // Navigation dans le processus d'élimination
+  const nextCeremonyStep = () => {
     if (!resultsData) return;
 
-    // Étape 0: Coups de cœur
-    if (resultsStep === 0) {
+    // Étape 0: En attente - démarrer
+    if (ceremonyStep === 0) {
+      setCeremonyStep(1); // Commencer les coups de cœur
+      setCurrentPhotoIndex(0);
+      return;
+    }
+
+    // Étape 1: Coups de cœur - passer à la photo suivante ou à l'étape suivante
+    if (ceremonyStep === 1) {
       const favorites = resultsData.favoriteCounts || [];
-      if (currentRevealIndex < favorites.length - 1) {
-        setCurrentRevealIndex((prev) => prev + 1);
+      if (currentPhotoIndex < favorites.length - 1) {
+        setCurrentPhotoIndex((prev) => prev + 1);
       } else {
-        setResultsStep(1);
-        setCurrentRevealIndex(0);
+        setCeremonyStep(2);
+        setCurrentCategoryIndex(0);
       }
+      return;
     }
-    // Étape 1: Prix par catégorie
-    else if (resultsStep === 1) {
+
+    // Étape 2: Prix par catégorie
+    if (ceremonyStep === 2) {
       const winners = resultsData.categoryWinners || [];
-      if (currentRevealIndex < winners.length - 1) {
-        setCurrentRevealIndex((prev) => prev + 1);
+      if (currentCategoryIndex < winners.length - 1) {
+        setCurrentCategoryIndex((prev) => prev + 1);
       } else {
-        setResultsStep(2);
-        setCurrentRevealIndex(0);
+        setCeremonyStep(3);
+        setRankingRevealedCount(0);
+        setRevealedRanking([]);
       }
+      return;
     }
-    // Étape 2: Classement sans scores (de la fin vers le début)
-    else if (resultsStep === 2) {
+
+    // Étape 3: Classement sans scores (élimination progressive)
+    if (ceremonyStep === 3) {
       const ranking = resultsData.generalRanking || [];
-      if (rankingRevealIndex < ranking.length - 1) {
-        setRankingRevealIndex((prev) => prev + 1);
+      const totalToReveal = ranking.length;
+
+      if (rankingRevealedCount < totalToReveal) {
+        const newCount = rankingRevealedCount + 1;
+        setRankingRevealedCount(newCount);
+        // Révéler depuis la fin
+        const revealed = ranking.slice(ranking.length - newCount);
+        setRevealedRanking(revealed);
       } else {
-        setResultsStep(3);
+        setCeremonyStep(4);
       }
+      return;
     }
-    // Étape 3: Révéler les scores
-    else if (resultsStep === 3) {
-      setScoresRevealed(true);
-      setResultsStep(4);
+
+    // Étape 4: Afficher les scores
+    if (ceremonyStep === 4) {
+      setShowScores(true);
+      setCeremonyStep(5);
+      return;
     }
-    // Étape 4: Prix de l'œil
-    else if (resultsStep === 4) {
-      setResultsStep(5);
+
+    // Étape 5: Prix de l'œil
+    if (ceremonyStep === 5) {
+      setCeremonyStep(6);
+      return;
     }
-    // Étape 5: Fin - on reste
   };
 
-  const prevStep = () => {
-    // Étape 1: revenir aux coups de cœur
-    if (resultsStep === 1 && currentRevealIndex > 0) {
-      setCurrentRevealIndex((prev) => prev - 1);
-    } else if (resultsStep === 1 && currentRevealIndex === 0) {
-      setResultsStep(0);
+  const prevCeremonyStep = () => {
+    if (ceremonyStep === 1 && currentPhotoIndex > 0) {
+      setCurrentPhotoIndex((prev) => prev - 1);
+    } else if (ceremonyStep === 1 && currentPhotoIndex === 0) {
+      setCeremonyStep(0);
+    } else if (ceremonyStep === 2 && currentCategoryIndex > 0) {
+      setCurrentCategoryIndex((prev) => prev - 1);
+    } else if (ceremonyStep === 2 && currentCategoryIndex === 0) {
+      setCeremonyStep(1);
       const favorites = resultsData?.favoriteCounts || [];
-      setCurrentRevealIndex(favorites.length - 1);
-    }
-    // Étape 2: revenir aux prix par catégorie
-    else if (resultsStep === 2 && rankingRevealIndex > 0) {
-      setRankingRevealIndex((prev) => prev - 1);
-    } else if (resultsStep === 2 && rankingRevealIndex === 0) {
-      setResultsStep(1);
-      const winners = resultsData?.categoryWinners || [];
-      setCurrentRevealIndex(winners.length - 1);
-    }
-    // Étape 3: revenir au classement sans scores
-    else if (resultsStep === 3) {
-      setResultsStep(2);
+      setCurrentPhotoIndex(favorites.length - 1);
+    } else if (ceremonyStep === 3 && rankingRevealedCount > 0) {
+      setRankingRevealedCount((prev) => prev - 1);
       const ranking = resultsData?.generalRanking || [];
-      setRankingRevealIndex(ranking.length - 1);
-    }
-    // Étape 4: revenir aux scores
-    else if (resultsStep === 4) {
-      setResultsStep(3);
-      setScoresRevealed(false);
-    }
-    // Étape 5: revenir au prix de l'œil
-    else if (resultsStep === 5) {
-      setResultsStep(4);
+      const newCount = rankingRevealedCount - 1;
+      const revealed = ranking.slice(ranking.length - newCount);
+      setRevealedRanking(revealed);
+    } else if (ceremonyStep === 3 && rankingRevealedCount === 0) {
+      setCeremonyStep(2);
+      const winners = resultsData?.categoryWinners || [];
+      setCurrentCategoryIndex(winners.length - 1);
+    } else if (ceremonyStep === 4) {
+      setCeremonyStep(3);
+      setShowScores(false);
+      const ranking = resultsData?.generalRanking || [];
+      setRankingRevealedCount(ranking.length);
+      setRevealedRanking(ranking);
+    } else if (ceremonyStep === 5) {
+      setCeremonyStep(4);
+      setShowScores(true);
+    } else if (ceremonyStep === 6) {
+      setCeremonyStep(5);
     }
   };
 
-  // Fonction principale de vérification du statut
+  // Vérification du statut
   const checkStatus = useCallback(async () => {
     try {
       const statusData = await api.get("/slideshow/status");
@@ -173,69 +191,63 @@ export default function DiapoPage() {
         return;
       }
 
-      if (statusData.hasOpenSession) {
-        if (statusData.hasCurrentPhoto) {
-          await loadCurrentPhoto();
-          if (lastModeRef.current !== "notation") {
-            lastModeRef.current = "notation";
-          }
+      if (statusData.hasOpenSession && statusData.hasCurrentPhoto) {
+        const data = await api.get("/slideshow/current");
+        if (data.hasPhoto && data.photo) {
+          setCurrentPhoto(data.photo);
+          setCurrentCategory(data.category);
           setMode("notation");
-        } else {
-          setMode("notation_waiting");
-          lastModeRef.current = "notation_waiting";
+          lastModeRef.current = "notation";
         }
         return;
       }
 
-      if (statusData.hasCompletedSession) {
-        if (lastModeRef.current !== "gallery") {
-          lastModeRef.current = "gallery";
-          if (statusData.completedCategoryId) {
-            await loadAllPhotos(statusData.completedCategoryId);
-          }
+      if (statusData.hasCompletedSession && lastModeRef.current !== "gallery") {
+        lastModeRef.current = "gallery";
+        if (statusData.completedCategoryId) {
+          await loadAllPhotos(statusData.completedCategoryId);
           setMode("gallery");
         }
         return;
       }
 
-      setMode("waiting");
-      lastModeRef.current = "waiting";
-      setError(null);
+      if (lastModeRef.current !== "waiting") {
+        setMode("waiting");
+        lastModeRef.current = "waiting";
+      }
     } catch (e) {
-      console.error("[DIAPO] Erreur status:", e);
+      console.error("[DIAPO] Erreur:", e);
       setError(e.message);
       setMode("error");
     }
-  }, [loadCurrentPhoto, loadAllPhotos, loadResultsData]);
+  }, [loadAllPhotos, loadResultsData]);
 
-  // Polling toutes les 2 secondes
   useEffect(() => {
     checkStatus();
-    const interval = setInterval(checkStatus, 2000);
+    const interval = setInterval(checkStatus, 3000);
     return () => clearInterval(interval);
   }, [checkStatus]);
 
-  // Rendu du bouton déconnexion
   const LogoutButton = () => (
     <button className="diapo-logout" onClick={logout}>
       🔓 Déconnexion
     </button>
   );
 
-  // Rendu des contrôles de navigation
   const NavigationControls = () => {
     if (!showControls) return null;
 
     let nextLabel = "Suivant ▶";
-    if (resultsStep === 4) nextLabel = "Prix de l'œil ▶";
-    if (resultsStep === 5) nextLabel = "Terminer";
+    if (ceremonyStep === 0) nextLabel = "Commencer ▶";
+    if (ceremonyStep === 5) nextLabel = "Prix de l'œil ▶";
+    if (ceremonyStep === 6) nextLabel = "Terminer";
 
     return (
       <div className="diapo-nav-controls">
-        <button className="nav-btn prev-btn" onClick={prevStep}>
+        <button className="nav-btn prev-btn" onClick={prevCeremonyStep}>
           ◀ Précédent
         </button>
-        <button className="nav-btn next-btn" onClick={nextStep}>
+        <button className="nav-btn next-btn" onClick={nextCeremonyStep}>
           {nextLabel}
         </button>
         <button
@@ -248,28 +260,12 @@ export default function DiapoPage() {
     );
   };
 
-  // Chargement initial
-  if (mode === "loading") {
-    return (
-      <div className="diapo-loading">
-        <div className="spinner spinner-lg" />
-        <p>Chargement du diaporama...</p>
-        <LogoutButton />
-      </div>
-    );
-  }
-
-  // Mode notation - photo en cours
-  if (mode === "notation" && currentPhoto?.url) {
+  // Mode Notation
+  if (mode === "notation" && currentPhoto) {
     return (
       <div className="diapo-container diapo-notation">
         <div className="diapo-photo-wrapper">
-          <img
-            key={currentPhoto.id}
-            src={currentPhoto.url}
-            alt=""
-            className="diapo-photo"
-          />
+          <img src={currentPhoto.url} alt="" className="diapo-photo" />
         </div>
         {currentCategory && (
           <div className="diapo-category">{currentCategory}</div>
@@ -281,22 +277,7 @@ export default function DiapoPage() {
     );
   }
 
-  // Session ouverte mais en attente
-  if (mode === "notation_waiting" || (mode === "notation" && !currentPhoto)) {
-    return (
-      <div className="diapo-container diapo-waiting">
-        <div className="waiting-content">
-          <div className="waiting-icon">📸</div>
-          <h1>Session ouverte</h1>
-          <p>En attente de la première photo...</p>
-          <div className="spinner spinner-sm" />
-        </div>
-        <LogoutButton />
-      </div>
-    );
-  }
-
-  // Mode galerie - TOUTES LES PHOTOS (UNIQUEMENT LES PHOTOS, PAS DE NOMS)
+  // Mode Galerie - TOUTES LES PHOTOS (seulement les photos)
   if (mode === "gallery" && allPhotos.length > 0) {
     return (
       <div className="diapo-container diapo-gallery">
@@ -305,201 +286,220 @@ export default function DiapoPage() {
           <LogoutButton />
         </div>
         <div className="gallery-grid">
-          {allPhotos.map((photo, index) => (
+          {allPhotos.map((photo, idx) => (
             <div key={photo.id} className="gallery-item">
-              <img src={photo.url} alt={`Photo ${index + 1}`} />
+              <img src={photo.url} alt={`Photo ${idx + 1}`} />
             </div>
           ))}
         </div>
         <div className="diapo-status-badge">🎬 Fin de la notation</div>
+        {showControls && (
+          <div className="gallery-controls">
+            <button
+              className="nav-btn next-btn"
+              onClick={() => {
+                if (resultsData) setMode("results");
+                else loadResultsData();
+              }}
+            >
+              🏆 Voir les résultats ▶
+            </button>
+          </div>
+        )}
       </div>
     );
   }
 
-  // MODE RÉSULTATS - avec contrôle manuel complet
-  if (mode === "results" && resultsData?.published) {
+  // MODE RÉSULTATS - PROCESSUS D'ÉLIMINATION
+  if (mode === "results" && resultsData) {
     const favorites = resultsData.favoriteCounts || [];
     const categoryWinners = resultsData.categoryWinners || [];
     const ranking = resultsData.generalRanking || [];
+    const currentFavorite = favorites[currentPhotoIndex];
+    const currentWinner = categoryWinners[currentCategoryIndex];
 
-    // Révélation du classement depuis la fin
-    // Quand il ne reste plus que 2 candidats, ils sont révélés ensemble
-    const revealedCount = rankingRevealIndex + 1;
-    const isLastTwoRevealed = revealedCount >= ranking.length - 1;
-    const revealedRanking = ranking.slice(ranking.length - revealedCount);
+    // Les deux derniers sont révélés ensemble
+    const isLastTwoRevealed =
+      rankingRevealedCount >= ranking.length - 1 && ranking.length > 2;
+    const showLastTwoTogether =
+      rankingRevealedCount === ranking.length - 1 && ranking.length > 2;
 
     return (
-      <div className="diapo-container diapo-results">
-        {/* ÉTAPE 0: COUPS DE CŒUR */}
-        {resultsStep === 0 && (
-          <div className="results-step">
-            <h1 className="results-title">❤️ COUPS DE CŒUR DU JURY ❤️</h1>
-            <div className="favorites-grid">
-              {favorites.slice(0, currentRevealIndex + 1).map((fav, idx) => (
-                <div key={fav.submissionId || idx} className="favorite-card">
-                  {fav.photoUrl && <img src={fav.photoUrl} alt="" />}
-                  <div className="favorite-hearts">
-                    {"❤️".repeat(Math.min(fav.count, 5))}
-                  </div>
-                  <div className="favorite-count">
-                    {fav.count} coup(s) de cœur
-                  </div>
-                </div>
-              ))}
-            </div>
-            {(!favorites.length ||
-              currentRevealIndex === favorites.length - 1) && (
-              <div className="step-hint">
-                ✨ Tous les coups de cœur dévoilés ✨
+      <div className="diapo-container diapo-ceremony">
+        {/* ÉCRAN 1: COUPS DE CŒUR */}
+        {ceremonyStep === 1 && currentFavorite && (
+          <div className="ceremony-screen">
+            <h1 className="ceremony-title">❤️ COUPS DE CŒUR DU JURY ❤️</h1>
+            <div className="ceremony-photo">
+              <img src={currentFavorite.photoUrl} alt="" />
+              <div className="ceremony-hearts">
+                {"❤️".repeat(Math.min(currentFavorite.count, 5))}
               </div>
-            )}
-          </div>
-        )}
-
-        {/* ÉTAPE 1: PRIX PAR CATÉGORIE */}
-        {resultsStep === 1 && (
-          <div className="results-step">
-            <h1 className="results-title">🏆 PRIX PAR CATÉGORIE 🏆</h1>
-            <div className="winners-grid">
-              {categoryWinners
-                .slice(0, currentRevealIndex + 1)
-                .map((winner, idx) => (
-                  <div key={winner.categoryId || idx} className="winner-card">
-                    <div className="winner-category">{winner.categoryName}</div>
-                    {winner.url && <img src={winner.url} alt="" />}
-                    <div className="winner-id">{winner.anonymousId}</div>
-                    <div className="winner-score">
-                      {winner.averageScore?.toFixed(1)}/20
-                    </div>
-                  </div>
-                ))}
+            </div>
+            <div className="ceremony-counter">
+              {currentPhotoIndex + 1} / {favorites.length}
             </div>
           </div>
         )}
 
-        {/* ÉTAPE 2: CLASSEMENT SANS SCORES (de la fin vers le début) */}
-        {resultsStep === 2 && (
-          <div className="results-step">
-            <h1 className="results-title">📊 CLASSEMENT GÉNÉRAL 📊</h1>
-            <div className="ranking-list">
+        {/* ÉCRAN 2: PRIX PAR CATÉGORIE */}
+        {ceremonyStep === 2 && currentWinner && (
+          <div className="ceremony-screen">
+            <h1 className="ceremony-title">🏆 PRIX PAR CATÉGORIE 🏆</h1>
+            <div className="ceremony-category-name">
+              {currentWinner.categoryName}
+            </div>
+            <div className="ceremony-photo">
+              <img src={currentWinner.url} alt="" />
+            </div>
+            <div className="ceremony-winner-id">
+              {currentWinner.anonymousId}
+            </div>
+            <div className="ceremony-winner-score">
+              {currentWinner.averageScore?.toFixed(1)}/20
+            </div>
+            <div className="ceremony-counter">
+              {currentCategoryIndex + 1} / {categoryWinners.length}
+            </div>
+          </div>
+        )}
+
+        {/* ÉCRAN 3: CLASSEMENT SANS SCORES (ÉLIMINATION) */}
+        {ceremonyStep === 3 && (
+          <div className="ceremony-screen ceremony-ranking">
+            <h1 className="ceremony-title">📊 CLASSEMENT GÉNÉRAL 📊</h1>
+            <div className="ranking-elimination">
               {revealedRanking
                 .slice()
                 .reverse()
                 .map((item, idx) => {
                   const actualRank =
-                    ranking.length - (rankingRevealIndex + 1) + idx + 1;
-                  const isTop3 =
-                    actualRank === 1 || actualRank === 2 || actualRank === 3;
-                  // Quand il ne reste que 2 candidats, on les révèle ensemble
-                  const showScore = isLastTwoRevealed && actualRank <= 2;
+                    ranking.length - revealedRanking.length + idx + 1;
+                  const isLastTwo =
+                    showLastTwoTogether &&
+                    (actualRank === 1 || actualRank === 2);
+                  const showScore = false; // Pas encore de scores
 
                   return (
                     <div
                       key={item.anonymousId}
-                      className={`ranking-item ${isTop3 ? `rank-${actualRank}` : ""}`}
-                      style={{ animationDelay: `${idx * 0.1}s` }}
+                      className={`ranking-elimination-item ${actualRank === 1 ? "rank-1" : actualRank === 2 ? "rank-2" : actualRank === 3 ? "rank-3" : ""}`}
+                      style={{ animationDelay: `${idx * 0.15}s` }}
                     >
-                      <div className="ranking-position">
+                      <div className="rank-number">
                         {actualRank === 1 && "🥇"}
                         {actualRank === 2 && "🥈"}
                         {actualRank === 3 && "🥉"}
                         {actualRank > 3 && `${actualRank}e`}
                       </div>
-                      <div className="ranking-name">{item.anonymousId}</div>
-                      {!showScore && !isLastTwoRevealed && (
-                        <div className="ranking-placeholder">??? pts</div>
+                      <div className="rank-name">{item.anonymousId}</div>
+                      {!isLastTwo && !showScore && (
+                        <div className="rank-placeholder">??? pts</div>
                       )}
                     </div>
                   );
                 })}
             </div>
-            {isLastTwoRevealed && (
-              <div className="step-hint">
-                🎯 Les deux finalistes sont dévoilés !
+            {showLastTwoTogether && (
+              <div className="ceremony-announce">
+                ✨ Les deux finalistes sont dévoilés ! ✨
+              </div>
+            )}
+            {rankingRevealedCount === ranking.length && (
+              <div className="ceremony-announce">
+                🎯 Tous les candidats sont classés !
               </div>
             )}
           </div>
         )}
 
-        {/* ÉTAPE 3: CLASSEMENT AVEC SCORES */}
-        {resultsStep === 3 && (
-          <div className="results-step">
-            <h1 className="results-title">📊 CLASSEMENT GÉNÉRAL 📊</h1>
-            <div className="ranking-list with-scores">
+        {/* ÉCRAN 4: CLASSEMENT AVEC SCORES */}
+        {ceremonyStep === 4 && (
+          <div className="ceremony-screen ceremony-ranking">
+            <h1 className="ceremony-title">📊 CLASSEMENT GÉNÉRAL 📊</h1>
+            <div className="ranking-with-scores">
               {ranking.map((item, idx) => (
                 <div
                   key={item.anonymousId}
-                  className={`ranking-item ${idx === 0 ? "rank-1" : idx === 1 ? "rank-2" : idx === 2 ? "rank-3" : ""}`}
+                  className={`ranking-score-item ${idx === 0 ? "rank-1" : idx === 1 ? "rank-2" : idx === 2 ? "rank-3" : ""}`}
                 >
-                  <div className="ranking-position">
+                  <div className="rank-number">
                     {idx === 0 && "🥇"}
                     {idx === 1 && "🥈"}
                     {idx === 2 && "🥉"}
                     {idx > 2 && `${idx + 1}e`}
                   </div>
-                  <div className="ranking-name">{item.anonymousId}</div>
-                  <div className="ranking-score">
-                    {item.total?.toFixed(1)} pts
-                  </div>
+                  <div className="rank-name">{item.anonymousId}</div>
+                  <div className="rank-score">{item.total?.toFixed(1)} pts</div>
                 </div>
               ))}
             </div>
           </div>
         )}
 
-        {/* ÉTAPE 4: PRIX DE L'ŒIL */}
-        {resultsStep === 4 && (
-          <div className="results-step">
-            <h1 className="results-title">👁️ PRIX DE L'ŒIL 👁️</h1>
-            <div className="eyeprize-container">
-              {resultsData.eyePrize ? (
-                <div className="eyeprize-card">
-                  {resultsData.eyePrize.url && (
-                    <img src={resultsData.eyePrize.url} alt="" />
-                  )}
-                  <div className="eyeprize-id">
-                    {resultsData.eyePrize.anonymousId}
-                  </div>
-                  <div className="eyeprize-category">
-                    {resultsData.eyePrize.categoryName}
-                  </div>
-                  <div className="eyeprize-badge">
-                    ✨ Photo la plus originale ✨
-                  </div>
+        {/* ÉCRAN 5: PRIX DE L'ŒIL */}
+        {ceremonyStep === 5 && (
+          <div className="ceremony-screen">
+            <h1 className="ceremony-title">👁️ PRIX DE L'ŒIL 👁️</h1>
+            {resultsData.eyePrize ? (
+              <div className="ceremony-eyeprize">
+                <div className="ceremony-photo">
+                  <img src={resultsData.eyePrize.url} alt="" />
                 </div>
-              ) : (
-                <div className="eyeprize-placeholder">
-                  <div className="placeholder-icon">👁️</div>
-                  <p>Sélection en cours...</p>
+                <div className="ceremony-winner-id">
+                  {resultsData.eyePrize.anonymousId}
                 </div>
-              )}
-            </div>
-            <div className="oral-announce">
+                <div className="ceremony-category-name">
+                  {resultsData.eyePrize.categoryName}
+                </div>
+                <div className="eyeprize-badge">
+                  ✨ Photo la plus originale ✨
+                </div>
+              </div>
+            ) : (
+              <div className="ceremony-placeholder">
+                <div className="placeholder-icon">👁️</div>
+                <p>Sélection en cours...</p>
+              </div>
+            )}
+            <div className="ceremony-oral-announce">
               <p>🎤 Le jury va maintenant donner son avis oralement...</p>
             </div>
           </div>
         )}
 
-        {/* ÉTAPE 5: FIN DE LA CÉRÉMONIE */}
-        {resultsStep === 5 && (
-          <div className="results-step">
-            <div className="end-ceremony">
-              <div className="end-icon">🏆</div>
-              <h1 className="results-title">FIN DE LA CÉRÉMONIE</h1>
-              <p className="end-message">Merci à tous les participants !</p>
-              <p className="end-sub">Rendez-vous pour la prochaine édition</p>
-            </div>
+        {/* ÉCRAN 6: FIN */}
+        {ceremonyStep === 6 && (
+          <div className="ceremony-screen ceremony-end">
+            <div className="end-icon">🏆</div>
+            <h1 className="ceremony-title">FIN DE LA CÉRÉMONIE</h1>
+            <p className="end-message">Merci à tous les participants !</p>
+            <p className="end-sub">Rendez-vous pour la prochaine édition</p>
           </div>
         )}
 
         {/* Indicateur d'étape */}
-        <div className="step-indicator">
-          {resultsStep === 0 && <span>❤️ Coups de cœur</span>}
-          {resultsStep === 1 && <span>🏆 Prix par catégorie</span>}
-          {resultsStep === 2 && <span>📊 Classement (sans scores)</span>}
-          {resultsStep === 3 && <span>📊 Classement (avec scores)</span>}
-          {resultsStep === 4 && <span>👁️ Prix de l'œil</span>}
-          {resultsStep === 5 && <span>🏁 Fin</span>}
+        <div className="ceremony-step-indicator">
+          {ceremonyStep === 0 && <span>⏸️ En attente</span>}
+          {ceremonyStep === 1 && (
+            <span>
+              ❤️ Coups de cœur ({currentPhotoIndex + 1}/{favorites.length})
+            </span>
+          )}
+          {ceremonyStep === 2 && (
+            <span>
+              🏆 Prix par catégorie ({currentCategoryIndex + 1}/
+              {categoryWinners.length})
+            </span>
+          )}
+          {ceremonyStep === 3 && (
+            <span>
+              📊 Classement ({rankingRevealedCount}/{ranking.length})
+            </span>
+          )}
+          {ceremonyStep === 4 && <span>📊 Scores</span>}
+          {ceremonyStep === 5 && <span>👁️ Prix de l'œil</span>}
+          {ceremonyStep === 6 && <span>🏁 Fin</span>}
         </div>
 
         <NavigationControls />
@@ -517,38 +517,7 @@ export default function DiapoPage() {
     );
   }
 
-  // Mode résultats en attente
-  if (mode === "results" && !resultsData?.published) {
-    return (
-      <div className="diapo-container diapo-waiting">
-        <div className="waiting-content">
-          <div className="waiting-icon">🏆</div>
-          <h1>Préparation des résultats</h1>
-          <p>Les résultats seront bientôt disponibles...</p>
-        </div>
-        <LogoutButton />
-      </div>
-    );
-  }
-
-  // Erreur
-  if (mode === "error") {
-    return (
-      <div className="diapo-container diapo-waiting">
-        <div className="waiting-content">
-          <div className="waiting-icon">⚠️</div>
-          <h1>Erreur de connexion</h1>
-          <p>{error || "Impossible de charger le diaporama."}</p>
-          <button className="retry-btn" onClick={checkStatus}>
-            🔄 Réessayer
-          </button>
-        </div>
-        <LogoutButton />
-      </div>
-    );
-  }
-
-  // Attente par défaut
+  // Chargement ou attente
   return (
     <div className="diapo-container diapo-waiting">
       <div className="waiting-content">
@@ -556,7 +525,7 @@ export default function DiapoPage() {
         <h1>Diaporama en attente</h1>
         <p>La session n'a pas encore commencé.</p>
         <p className="waiting-note">
-          Rafraîchissement automatique toutes les 2s
+          Rafraîchissement automatique toutes les 3s
         </p>
       </div>
       <LogoutButton />
