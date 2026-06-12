@@ -12,6 +12,7 @@ import criteriaRoutes from "./routes/criteria.js";
 import deliberationsRoutes from "./routes/deliberations.js";
 import scoresRoutes from "./routes/scores.js";
 import resultsRoutes from "./routes/results.js";
+import slideshowRoutes from "./routes/slideshow.js";
 import adminRoutes from "./routes/admin.js";
 
 dotenv.config();
@@ -59,6 +60,7 @@ app.use("/api/deliberations", deliberationsRoutes);
 app.use("/api/scores", scoresRoutes);
 app.use("/api/results", resultsRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/slideshow", slideshowRoutes);
 
 /* ── Health check ── */
 app.get("/api/health", (_req, res) =>

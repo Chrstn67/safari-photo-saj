@@ -4,6 +4,7 @@ import { useAuth } from "../../server/hooks/useAuth.jsx";
 import { api } from "../../server/utils/api.js";
 import { subscribe } from "../../server/utils/realtime.js";
 import TopBar from "../components/TopBar.jsx";
+import SlideshowController from "../components/SlideshowController.jsx";
 import AdminUsersTab from "./AdminUsersTab.jsx";
 
 export default function AdminPage() {
@@ -19,10 +20,10 @@ export default function AdminPage() {
 
   const TABS = [
     { id: "dashboard", label: "Dashboard", icon: "📊" },
-    { id: "users", label: "Utilisateurs", icon: "👥" },
-    { id: "deliberation", label: "Délibérations", icon: "🔴" },
     { id: "categories", label: "Catégories", icon: "🗂️" },
     { id: "criteria", label: "Critères", icon: "📐" },
+    { id: "users", label: "Utilisateurs", icon: "👥" },
+    { id: "deliberation", label: "Délibérations", icon: "🔴" },
     { id: "results", label: "Résultats", icon: "🏆" },
     { id: "eye-prize", label: "Prix de l'œil", icon: "👁️" },
     { id: "audit", label: "Audit", icon: "📋" },
@@ -92,7 +93,10 @@ export default function AdminPage() {
           <div className="page">
             {tab === "dashboard" && <DashboardTab showFlash={showFlash} />}
             {tab === "deliberation" && (
-              <DeliberationTab showFlash={showFlash} />
+              <>
+                <SlideshowController />
+                <DeliberationTab showFlash={showFlash} />
+              </>
             )}
             {tab === "users" && <AdminUsersTab showFlash={showFlash} />}
             {tab === "categories" && <CategoriesTab showFlash={showFlash} />}
