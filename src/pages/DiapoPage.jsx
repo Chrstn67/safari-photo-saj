@@ -1,8 +1,8 @@
 // frontend/src/pages/DiapoPage.jsx
 import { useState, useEffect, useCallback } from "react";
-import { useAuth } from "../../server/hooks/useAuth.jsx";
-import { api } from "../../server/utils/api.js";
-import { subscribe } from "../../server/utils/realtime.js";
+import { useAuth } from "../hooks/useAuth.jsx";
+import { api } from "../utils/api.js";
+import { subscribe } from "../utils/realtime.js";
 
 export default function DiapoPage() {
   const { user, logout } = useAuth();
@@ -12,26 +12,20 @@ export default function DiapoPage() {
   const [allPhotos, setAllPhotos] = useState([]);
   const [resultsData, setResultsData] = useState(null);
   const [status, setStatus] = useState(null);
+  const [error, setError] = useState(null);
 
-  console.log(
-    "[DIAPO] Token présent ?",
-    !!localStorage.getItem("safari_token"),
-  );
-  console.log("[DIAPO] User from auth:", user);
   // Vérifier l'état global
   const checkStatus = useCallback(async () => {
     try {
+      console.log("[DIAPO] Checking status...");
       const statusData = await api.get("/slideshow/status");
-      console.log("[DIAPO] Status:", statusData);
+      console.log("[DIAPO] Status received:", statusData);
       setStatus(statusData);
 
       if (statusData.resultsPublished) {
         await loadResultsData();
         setMode("results");
-      } else if (
-        statusData.hasOpenSession &&
-        statusData.openSession?.hasCurrentPhoto
-      ) {
+      } else if (statusData.hasOpenSession && statusData.hasCurrentPhoto) {
         await loadCurrentPhoto();
         setMode("notation");
       } else if (statusData.hasCompletedSession) {
@@ -40,15 +34,19 @@ export default function DiapoPage() {
       } else {
         setMode("waiting");
       }
+      setError(null);
     } catch (e) {
       console.error("[DIAPO] Erreur status:", e);
+      setError(e.message);
       setMode("error");
     }
   }, []);
 
   const loadCurrentPhoto = async () => {
     try {
+      console.log("[DIAPO] Loading current photo...");
       const data = await api.get("/slideshow/current");
+      console.log("[DIAPO] Current photo response:", data);
       if (data.hasPhoto && data.photo) {
         setCurrentPhoto(data.photo);
         setCurrentCategory(data.category);
@@ -84,27 +82,36 @@ export default function DiapoPage() {
     }
   };
 
-  // Rafraîchissement périodique
+  // Rafraîchissement périodique (toutes les 3 secondes)
   useEffect(() => {
     checkStatus();
-    const interval = setInterval(checkStatus, 5000);
+    const interval = setInterval(checkStatus, 3000);
     return () => clearInterval(interval);
   }, [checkStatus]);
 
   // Écouter les changements en temps réel
   useEffect(() => {
-    const unsubSessions = subscribe("deliberation_sessions", "*", () => {
-      console.log("[DIAPO] Session changed, refreshing...");
+    // Écouter les changements de sessions
+    const unsubSessions = subscribe("deliberation_sessions", "*", (payload) => {
+      console.log("[DIAPO] Session changed:", payload);
       checkStatus();
     });
 
+    // Écouter les changements de validations (pour déclencher le rafraîchissement)
+    const unsubValidations = subscribe("jury_validations", "*", () => {
+      console.log("[DIAPO] Validation changed, checking next photo...");
+      checkStatus();
+    });
+
+    // Écouter les changements de résultats
     const unsubResults = subscribe("results", "*", () => {
-      console.log("[DIAPO] Results changed, refreshing...");
+      console.log("[DIAPO] Results changed");
       checkStatus();
     });
 
     return () => {
       unsubSessions();
+      unsubValidations();
       unsubResults();
     };
   }, [checkStatus]);
@@ -124,12 +131,29 @@ export default function DiapoPage() {
     return (
       <div className="diapo-container">
         <div className="diapo-photo">
-          <img src={currentPhoto.url} alt="" />
+          <img
+            src={currentPhoto.url}
+            alt={`Photo ${currentPhoto.anonymous_id}`}
+          />
         </div>
         {currentCategory && (
           <div className="diapo-category">{currentCategory}</div>
         )}
+        <div className="diapo-anonymous-id">{currentPhoto.anonymous_id}</div>
         <div className="diapo-status">📸 Notation en cours...</div>
+      </div>
+    );
+  }
+
+  // Mode notation mais pas de photo (en attente)
+  if (mode === "notation" && !currentPhoto) {
+    return (
+      <div className="diapo-container diapo-waiting">
+        <div className="diapo-waiting-content">
+          <div className="waiting-icon">📸</div>
+          <h1>En attente de la première photo...</h1>
+          <p>La session est ouverte mais aucune photo n'est chargée.</p>
+        </div>
       </div>
     );
   }
@@ -153,12 +177,21 @@ export default function DiapoPage() {
 
   // Mode résultats
   if (mode === "results" && resultsData?.published) {
+    // Affichage simplifié des résultats pour le diaporama
     return (
       <div className="diapo-container diapo-results">
-        <h1 className="results-title">🏆 RÉSULTATS 🏆</h1>
-        <div className="results-end">
-          <div className="end-icon">🎉</div>
-          <p>Les résultats seront affichés ici</p>
+        <h1 className="results-title">🏆 RÉSULTATS DU CONCOURS 🏆</h1>
+        <div className="results-content">
+          {resultsData.categoryWinners?.map((winner, idx) => (
+            <div key={idx} className="result-card">
+              <h3>{winner.categoryName}</h3>
+              {winner.url && <img src={winner.url} alt="" />}
+              <p className="winner-id">{winner.anonymousId}</p>
+              <p className="winner-score">
+                {winner.averageScore?.toFixed(1)}/20
+              </p>
+            </div>
+          ))}
         </div>
       </div>
     );
@@ -171,7 +204,7 @@ export default function DiapoPage() {
         <div className="diapo-waiting-content">
           <div className="waiting-icon">⚠️</div>
           <h1>Erreur de chargement</h1>
-          <p>Impossible de charger le diaporama.</p>
+          <p>{error || "Impossible de charger le diaporama."}</p>
           <button className="btn btn-primary" onClick={checkStatus}>
             Réessayer
           </button>
@@ -187,6 +220,17 @@ export default function DiapoPage() {
         <div className="waiting-icon">📺</div>
         <h1>Diaporama en attente</h1>
         <p>La session de notation n'a pas encore commencé.</p>
+        {status?.openSession && (
+          <div className="waiting-details">
+            <p>Session ouverte mais en attente de photo...</p>
+            <p className="small">
+              Catégorie: {status.openSession.categoryName}
+            </p>
+            <button className="btn btn-primary" onClick={checkStatus}>
+              Rafraîchir
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

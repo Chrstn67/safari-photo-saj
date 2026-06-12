@@ -5,22 +5,23 @@ import { requireAuth, requireDiapo } from "../middleware/auth.js";
 
 const router = express.Router();
 
-// LOG pour vérifier que le routeur est bien chargé
-console.log("[SLIDESHOW] Router loaded");
-
 // GET /api/slideshow/status
 router.get("/status", requireAuth, requireDiapo, async (req, res) => {
-  console.log(
-    "[SLIDESHOW_STATUS] Called - headers:",
-    req.headers.authorization?.slice(0, 50) + "...",
-  );
-  console.log("[SLIDESHOW_STATUS] User:", req.user?.id, req.user?.role);
+  console.log("[SLIDESHOW_STATUS] Called");
 
   try {
-    // Vérifier s'il y a une session ouverte
+    // Récupérer la session ouverte avec sa photo courante
     const { data: openSession, error: openError } = await supabase
       .from("deliberation_sessions")
-      .select("id, category_id, status, current_photo_id, categories(name)")
+      .select(
+        `
+        id, 
+        category_id, 
+        status, 
+        current_photo_id,
+        categories:category_id (name)
+      `,
+      )
       .eq("status", "open")
       .maybeSingle();
 
@@ -28,7 +29,7 @@ router.get("/status", requireAuth, requireDiapo, async (req, res) => {
       console.error("[SLIDESHOW_STATUS] openSession error:", openError);
     }
 
-    // Vérifier s'il y a une session terminée
+    // Vérifier si une session est complétée
     const { data: completedSession, error: completedError } = await supabase
       .from("deliberation_sessions")
       .select("id, category_id, status")
@@ -42,7 +43,7 @@ router.get("/status", requireAuth, requireDiapo, async (req, res) => {
       );
     }
 
-    // Vérifier si les résultats sont publiés
+    // Vérifier les résultats publiés
     const { data: resultsStatus, error: resultsError } = await supabase
       .from("results")
       .select("is_published")
@@ -53,22 +54,31 @@ router.get("/status", requireAuth, requireDiapo, async (req, res) => {
       console.error("[SLIDESHOW_STATUS] resultsStatus error:", resultsError);
     }
 
-    const response = {
-      hasOpenSession: !!openSession,
+    const hasOpenSession = !!openSession;
+    const hasCurrentPhoto = hasOpenSession && !!openSession.current_photo_id;
+
+    console.log(
+      "[SLIDESHOW_STATUS] hasOpenSession:",
+      hasOpenSession,
+      "hasCurrentPhoto:",
+      hasCurrentPhoto,
+    );
+
+    res.json({
+      hasOpenSession: hasOpenSession,
+      hasCurrentPhoto: hasCurrentPhoto,
       openSession: openSession
         ? {
             id: openSession.id,
             categoryId: openSession.category_id,
             categoryName: openSession.categories?.name,
-            hasCurrentPhoto: !!openSession.current_photo_id,
+            hasCurrentPhoto: hasCurrentPhoto,
+            currentPhotoId: openSession.current_photo_id,
           }
         : null,
       hasCompletedSession: !!completedSession,
       resultsPublished: resultsStatus?.is_published || false,
-    };
-
-    console.log("[SLIDESHOW_STATUS] Response:", response);
-    res.json(response);
+    });
   } catch (e) {
     console.error("[SLIDESHOW_STATUS] Exception:", e);
     res.status(500).json({ error: e.message });
@@ -80,6 +90,7 @@ router.get("/current", requireAuth, requireDiapo, async (req, res) => {
   console.log("[SLIDESHOW_CURRENT] Called");
 
   try {
+    // Récupérer la session ouverte avec sa photo
     const { data: openSession, error: sessionError } = await supabase
       .from("deliberation_sessions")
       .select(
@@ -88,8 +99,8 @@ router.get("/current", requireAuth, requireDiapo, async (req, res) => {
         category_id,
         status,
         current_photo_id,
-        categories!deliberation_sessions_category_id_fkey (name),
-        current_photo:submissions!current_photo_id (
+        categories:category_id (name),
+        current_photo:current_photo_id (
           id,
           anonymous_id,
           display_order,
@@ -106,13 +117,6 @@ router.get("/current", requireAuth, requireDiapo, async (req, res) => {
       return res.status(500).json({ error: sessionError.message });
     }
 
-    console.log(
-      "[SLIDESHOW_CURRENT] openSession:",
-      openSession?.id,
-      "status:",
-      openSession?.status,
-    );
-
     if (
       !openSession ||
       !openSession.current_photo_id ||
@@ -124,10 +128,11 @@ router.get("/current", requireAuth, requireDiapo, async (req, res) => {
 
     const storagePath = openSession.current_photo.photos?.storage_path;
     if (!storagePath) {
-      console.log("[SLIDESHOW_CURRENT] No storage path for photo");
+      console.log("[SLIDESHOW_CURRENT] No storage path");
       return res.json({ hasPhoto: false, photo: null, category: null });
     }
 
+    // Générer URL signée
     let url = null;
     try {
       const { data: signed, error: signedError } = await supabase.storage
@@ -140,11 +145,11 @@ router.get("/current", requireAuth, requireDiapo, async (req, res) => {
         url = signed?.signedUrl;
       }
     } catch (err) {
-      console.error("[SLIDESHOW_CURRENT] URL signed exception:", err);
+      console.error("[SLIDESHOW_CURRENT] URL exception:", err);
     }
 
     console.log(
-      "[SLIDESHOW_CURRENT] Found photo:",
+      "[SLIDESHOW_CURRENT] Photo found:",
       openSession.current_photo.anonymous_id,
     );
 
@@ -207,11 +212,7 @@ router.get(
                 .createSignedUrl(storagePath, 3600);
               url = signed?.signedUrl;
             } catch (err) {
-              console.error(
-                "[SLIDESHOW_ALL_PHOTOS] URL error for",
-                sub.id,
-                err,
-              );
+              console.error("[SLIDESHOW_ALL_PHOTOS] URL error:", err);
             }
           }
           return {
@@ -232,8 +233,6 @@ router.get(
 
 // GET /api/slideshow/results-data
 router.get("/results-data", requireAuth, requireDiapo, async (req, res) => {
-  console.log("[SLIDESHOW_RESULTS_DATA] Called");
-
   try {
     const { data: settings } = await supabase
       .from("results")
@@ -245,7 +244,6 @@ router.get("/results-data", requireAuth, requireDiapo, async (req, res) => {
       return res.json({ published: false });
     }
 
-    // Récupérer les résultats
     const { data: results } = await supabase
       .from("results")
       .select(
@@ -261,7 +259,6 @@ router.get("/results-data", requireAuth, requireDiapo, async (req, res) => {
       .order("category_id")
       .order("rank");
 
-    // Classement général simplifié
     const userScores = {};
     (results || []).forEach((r) => {
       const key = r.submissions?.anonymous_id || r.submission_id;
@@ -275,7 +272,6 @@ router.get("/results-data", requireAuth, requireDiapo, async (req, res) => {
       .sort((a, b) => b.total - a.total)
       .map((item, idx) => ({ ...item, rank: idx + 1 }));
 
-    // Prix par catégorie
     const categoryWinners = [];
     const seenCategories = new Set();
     for (const r of results || []) {
@@ -300,7 +296,6 @@ router.get("/results-data", requireAuth, requireDiapo, async (req, res) => {
       }
     }
 
-    // Prix de l'œil
     const { data: eyePrize } = await supabase
       .from("eye_prize_selections")
       .select(
