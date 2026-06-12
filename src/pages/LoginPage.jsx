@@ -8,6 +8,7 @@
 //   participant → /participant
 //   juror       → /jury
 //   admin       → /admin
+//   DIAPO SAJ   → /diapo (compte spécial pour l'écran de projection)
 //
 // IMPORTANT : L'admin Christian HUMBERT se connecte ici
 // exactement comme un participant — la page ne distingue pas.
@@ -96,7 +97,13 @@ function LoginForm({ login, navigate }) {
         form.lastName.trim(),
         form.password,
       );
-      navigate(ROLE_REDIRECT[user.role] || "/participant", { replace: true });
+
+      // Redirection spéciale pour le compte DIAPO
+      if (user.firstName === "DIAPO" && user.lastName === "SAJ") {
+        navigate("/diapo", { replace: true });
+      } else {
+        navigate(ROLE_REDIRECT[user.role] || "/participant", { replace: true });
+      }
     } catch (err) {
       setError(err.message);
     } finally {

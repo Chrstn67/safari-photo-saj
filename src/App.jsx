@@ -6,6 +6,7 @@ import RegisterPage from "./pages/RegisterPage.jsx";
 import ParticipantPage from "./pages/ParticipantPage.jsx";
 import JuryPage from "./pages/JuryPage.jsx";
 import AdminPage from "./pages/AdminPage.jsx";
+import DiapoPage from "./pages/DiapoPage.jsx";
 import "./styles/global.css";
 
 function ProtectedRoute({ children, roles }) {
@@ -36,6 +37,10 @@ function PublicRoute({ children }) {
   const { user, loading } = useAuth();
   if (loading) return null;
   if (user) {
+    // Redirection pour le compte DIAPO
+    if (user.firstName === "DIAPO" && user.lastName === "SAJ") {
+      return <Navigate to="/diapo" replace />;
+    }
     if (user.role === "admin") return <Navigate to="/admin" replace />;
     if (user.role === "juror") return <Navigate to="/jury" replace />;
     return <Navigate to="/participant" replace />;
@@ -85,6 +90,14 @@ export default function App() {
             element={
               <ProtectedRoute roles={["admin"]}>
                 <AdminPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/diapo"
+            element={
+              <ProtectedRoute roles={["juror"]}>
+                <DiapoPage />
               </ProtectedRoute>
             }
           />
