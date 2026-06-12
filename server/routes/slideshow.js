@@ -7,10 +7,15 @@ const router = express.Router();
 
 // GET /api/slideshow/status
 router.get("/status", requireAuth, requireDiapo, async (req, res) => {
-  console.log("[SLIDESHOW_STATUS] Called");
+  console.log(
+    "[SLIDESHOW_STATUS] Called by user:",
+    req.user?.id,
+    "role:",
+    req.user?.role,
+  );
 
   try {
-    // Récupérer la session ouverte avec sa photo courante
+    // Session ouverte avec photo courante
     const { data: openSession, error: openError } = await supabase
       .from("deliberation_sessions")
       .select(
@@ -29,7 +34,7 @@ router.get("/status", requireAuth, requireDiapo, async (req, res) => {
       console.error("[SLIDESHOW_STATUS] openSession error:", openError);
     }
 
-    // Vérifier si une session est complétée
+    // Session complétée (notation terminée)
     const { data: completedSession, error: completedError } = await supabase
       .from("deliberation_sessions")
       .select("id, category_id, status")
@@ -43,7 +48,7 @@ router.get("/status", requireAuth, requireDiapo, async (req, res) => {
       );
     }
 
-    // Vérifier les résultats publiés
+    // Résultats publiés
     const { data: resultsStatus, error: resultsError } = await supabase
       .from("results")
       .select("is_published")
@@ -62,21 +67,27 @@ router.get("/status", requireAuth, requireDiapo, async (req, res) => {
       hasOpenSession,
       "hasCurrentPhoto:",
       hasCurrentPhoto,
+      "hasCompletedSession:",
+      !!completedSession,
+      "resultsPublished:",
+      resultsStatus?.is_published,
     );
 
     res.json({
-      hasOpenSession: hasOpenSession,
-      hasCurrentPhoto: hasCurrentPhoto,
+      hasOpenSession,
+      hasCurrentPhoto,
       openSession: openSession
         ? {
             id: openSession.id,
             categoryId: openSession.category_id,
             categoryName: openSession.categories?.name,
-            hasCurrentPhoto: hasCurrentPhoto,
+            hasCurrentPhoto,
             currentPhotoId: openSession.current_photo_id,
           }
         : null,
       hasCompletedSession: !!completedSession,
+      // IMPORTANT : on expose l'id de la catégorie complétée pour charger la galerie
+      completedCategoryId: completedSession?.category_id || null,
       resultsPublished: resultsStatus?.is_published || false,
     });
   } catch (e) {
@@ -90,7 +101,6 @@ router.get("/current", requireAuth, requireDiapo, async (req, res) => {
   console.log("[SLIDESHOW_CURRENT] Called");
 
   try {
-    // Récupérer la session ouverte avec sa photo
     const { data: openSession, error: sessionError } = await supabase
       .from("deliberation_sessions")
       .select(
@@ -132,7 +142,6 @@ router.get("/current", requireAuth, requireDiapo, async (req, res) => {
       return res.json({ hasPhoto: false, photo: null, category: null });
     }
 
-    // Générer URL signée
     let url = null;
     try {
       const { data: signed, error: signedError } = await supabase.storage
@@ -157,7 +166,7 @@ router.get("/current", requireAuth, requireDiapo, async (req, res) => {
       hasPhoto: true,
       photo: {
         id: openSession.current_photo.id,
-        url: url,
+        url,
         anonymous_id: openSession.current_photo.anonymous_id,
         display_order: openSession.current_photo.display_order,
       },
@@ -217,7 +226,7 @@ router.get(
           }
           return {
             id: sub.id,
-            url: url,
+            url,
             displayOrder: sub.display_order || idx + 1,
           };
         }),

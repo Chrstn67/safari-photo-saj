@@ -1,8 +1,7 @@
 // frontend/src/pages/DiapoPage.jsx
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "../../server/hooks/useAuth.jsx";
 import { api } from "../../server/utils/api.js";
-import { subscribe } from "../../server/utils/realtime.js";
 
 export default function DiapoPage() {
   const { user, logout } = useAuth();
@@ -11,112 +10,115 @@ export default function DiapoPage() {
   const [currentCategory, setCurrentCategory] = useState(null);
   const [allPhotos, setAllPhotos] = useState([]);
   const [resultsData, setResultsData] = useState(null);
-  const [status, setStatus] = useState(null);
   const [error, setError] = useState(null);
 
-  // Vérifier l'état global
-  const checkStatus = useCallback(async () => {
-    try {
-      console.log("[DIAPO] Checking status...");
-      const statusData = await api.get("/slideshow/status");
-      console.log("[DIAPO] Status received:", statusData);
-      setStatus(statusData);
+  // Référence pour détecter les changements de photo
+  const lastPhotoIdRef = useRef(null);
+  const lastModeRef = useRef(null);
 
-      if (statusData.resultsPublished) {
-        await loadResultsData();
-        setMode("results");
-      } else if (statusData.hasOpenSession && statusData.hasCurrentPhoto) {
-        await loadCurrentPhoto();
-        setMode("notation");
-      } else if (statusData.hasCompletedSession) {
-        await loadAllPhotos();
-        setMode("gallery");
-      } else {
-        setMode("waiting");
-      }
-      setError(null);
-    } catch (e) {
-      console.error("[DIAPO] Erreur status:", e);
-      setError(e.message);
-      setMode("error");
-    }
-  }, []);
-
-  const loadCurrentPhoto = async () => {
+  const loadCurrentPhoto = useCallback(async () => {
     try {
-      console.log("[DIAPO] Loading current photo...");
       const data = await api.get("/slideshow/current");
-      console.log("[DIAPO] Current photo response:", data);
       if (data.hasPhoto && data.photo) {
+        // Détecter si la photo a changé (pour animation éventuelle)
+        if (data.photo.id !== lastPhotoIdRef.current) {
+          lastPhotoIdRef.current = data.photo.id;
+        }
         setCurrentPhoto(data.photo);
         setCurrentCategory(data.category);
+        return true;
       } else {
         setCurrentPhoto(null);
+        return false;
       }
     } catch (e) {
       console.error("[DIAPO] Erreur chargement photo:", e);
+      return false;
     }
-  };
+  }, []);
 
-  const loadAllPhotos = async () => {
+  const loadAllPhotos = useCallback(async (categoryId) => {
     try {
-      const sessions = await api.get("/deliberations");
-      const completedSession = sessions?.find((s) => s.status === "completed");
-      if (completedSession?.category_id) {
-        const data = await api.get(
-          `/slideshow/all-photos/${completedSession.category_id}`,
-        );
-        setAllPhotos(data.photos || []);
-      }
+      const data = await api.get(`/slideshow/all-photos/${categoryId}`);
+      setAllPhotos(data.photos || []);
     } catch (e) {
       console.error("[DIAPO] Erreur chargement toutes photos:", e);
     }
-  };
+  }, []);
 
-  const loadResultsData = async () => {
+  const loadResultsData = useCallback(async () => {
     try {
       const data = await api.get("/slideshow/results-data");
       setResultsData(data);
     } catch (e) {
       console.error("[DIAPO] Erreur chargement résultats:", e);
     }
-  };
+  }, []);
 
-  // Rafraîchissement périodique (toutes les 3 secondes)
+  // Fonction principale de vérification du statut
+  const checkStatus = useCallback(async () => {
+    try {
+      const statusData = await api.get("/slideshow/status");
+
+      if (statusData.resultsPublished) {
+        // Mode résultats publiés
+        if (lastModeRef.current !== "results") {
+          lastModeRef.current = "results";
+          await loadResultsData();
+          setMode("results");
+        }
+        return;
+      }
+
+      if (statusData.hasOpenSession) {
+        if (statusData.hasCurrentPhoto) {
+          // Session ouverte avec une photo en cours → mode notation
+          await loadCurrentPhoto();
+          if (lastModeRef.current !== "notation") {
+            lastModeRef.current = "notation";
+          }
+          setMode("notation");
+        } else {
+          // Session ouverte mais pas encore de photo
+          setMode("notation_waiting");
+          lastModeRef.current = "notation_waiting";
+        }
+        return;
+      }
+
+      if (statusData.hasCompletedSession) {
+        // Session terminée → galerie
+        if (lastModeRef.current !== "gallery") {
+          lastModeRef.current = "gallery";
+          if (statusData.completedCategoryId) {
+            await loadAllPhotos(statusData.completedCategoryId);
+          }
+          setMode("gallery");
+        }
+        return;
+      }
+
+      // Aucun état actif
+      setMode("waiting");
+      lastModeRef.current = "waiting";
+      setError(null);
+    } catch (e) {
+      console.error("[DIAPO] Erreur status:", e);
+      setError(e.message);
+      setMode("error");
+    }
+  }, [loadCurrentPhoto, loadAllPhotos, loadResultsData]);
+
+  // Polling toutes les 2 secondes
   useEffect(() => {
     checkStatus();
-    const interval = setInterval(checkStatus, 3000);
+    const interval = setInterval(checkStatus, 2000);
     return () => clearInterval(interval);
   }, [checkStatus]);
 
-  // Écouter les changements en temps réel
-  useEffect(() => {
-    // Écouter les changements de sessions
-    const unsubSessions = subscribe("deliberation_sessions", "*", (payload) => {
-      console.log("[DIAPO] Session changed:", payload);
-      checkStatus();
-    });
+  // ─── Rendu ───────────────────────────────────────────────────────────────────
 
-    // Écouter les changements de validations (pour déclencher le rafraîchissement)
-    const unsubValidations = subscribe("jury_validations", "*", () => {
-      console.log("[DIAPO] Validation changed, checking next photo...");
-      checkStatus();
-    });
-
-    // Écouter les changements de résultats
-    const unsubResults = subscribe("results", "*", () => {
-      console.log("[DIAPO] Results changed");
-      checkStatus();
-    });
-
-    return () => {
-      unsubSessions();
-      unsubValidations();
-      unsubResults();
-    };
-  }, [checkStatus]);
-
-  // Si pas encore de statut
+  // Chargement initial
   if (mode === "loading") {
     return (
       <div className="diapo-loading">
@@ -129,11 +131,13 @@ export default function DiapoPage() {
   // Mode notation - photo en cours
   if (mode === "notation" && currentPhoto?.url) {
     return (
-      <div className="diapo-container">
+      <div className="diapo-container diapo-fullscreen">
         <div className="diapo-photo">
           <img
+            key={currentPhoto.id}
             src={currentPhoto.url}
             alt={`Photo ${currentPhoto.anonymous_id}`}
+            className="diapo-img"
           />
         </div>
         {currentCategory && (
@@ -145,20 +149,21 @@ export default function DiapoPage() {
     );
   }
 
-  // Mode notation mais pas de photo (en attente)
-  if (mode === "notation" && !currentPhoto) {
+  // Session ouverte mais en attente de la première photo
+  if (mode === "notation_waiting" || (mode === "notation" && !currentPhoto)) {
     return (
       <div className="diapo-container diapo-waiting">
         <div className="diapo-waiting-content">
           <div className="waiting-icon">📸</div>
-          <h1>En attente de la première photo...</h1>
-          <p>La session est ouverte mais aucune photo n'est chargée.</p>
+          <h1>Session ouverte</h1>
+          <p>En attente du chargement de la première photo...</p>
+          <div className="spinner spinner-sm" />
         </div>
       </div>
     );
   }
 
-  // Mode galerie - toutes les photos
+  // Mode galerie - toutes les photos notées
   if (mode === "gallery" && allPhotos.length > 0) {
     return (
       <div className="diapo-container diapo-gallery">
@@ -177,7 +182,6 @@ export default function DiapoPage() {
 
   // Mode résultats
   if (mode === "results" && resultsData?.published) {
-    // Affichage simplifié des résultats pour le diaporama
     return (
       <div className="diapo-container diapo-results">
         <h1 className="results-title">🏆 RÉSULTATS DU CONCOURS 🏆</h1>
@@ -197,13 +201,13 @@ export default function DiapoPage() {
     );
   }
 
-  // Mode erreur
+  // Erreur
   if (mode === "error") {
     return (
       <div className="diapo-container diapo-waiting">
         <div className="diapo-waiting-content">
           <div className="waiting-icon">⚠️</div>
-          <h1>Erreur de chargement</h1>
+          <h1>Erreur de connexion</h1>
           <p>{error || "Impossible de charger le diaporama."}</p>
           <button className="btn btn-primary" onClick={checkStatus}>
             Réessayer
@@ -213,24 +217,16 @@ export default function DiapoPage() {
     );
   }
 
-  // En attente
+  // Attente (aucune session active)
   return (
     <div className="diapo-container diapo-waiting">
       <div className="diapo-waiting-content">
         <div className="waiting-icon">📺</div>
         <h1>Diaporama en attente</h1>
         <p>La session de notation n'a pas encore commencé.</p>
-        {status?.openSession && (
-          <div className="waiting-details">
-            <p>Session ouverte mais en attente de photo...</p>
-            <p className="small">
-              Catégorie: {status.openSession.categoryName}
-            </p>
-            <button className="btn btn-primary" onClick={checkStatus}>
-              Rafraîchir
-            </button>
-          </div>
-        )}
+        <p className="small muted">
+          Rafraîchissement automatique toutes les 2s
+        </p>
       </div>
     </div>
   );
