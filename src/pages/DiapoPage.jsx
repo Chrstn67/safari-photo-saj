@@ -11,6 +11,7 @@ export default function DiapoPage() {
   const [allPhotos, setAllPhotos] = useState([]);
   const [resultsData, setResultsData] = useState(null);
   const [error, setError] = useState(null);
+  const [completedCategoryId, setCompletedCategoryId] = useState(null);
 
   // État du processus d'élimination
   const [ceremonyStep, setCeremonyStep] = useState(0);
@@ -31,10 +32,10 @@ export default function DiapoPage() {
       if (e.ctrlKey && e.shiftKey && e.key === "H") {
         setShowControls((prev) => !prev);
       }
-      if (e.key === "ArrowRight" && showControls) {
+      if (e.key === "ArrowRight" && showControls && mode === "results") {
         nextCeremonyStep();
       }
-      if (e.key === "ArrowLeft" && showControls) {
+      if (e.key === "ArrowLeft" && showControls && mode === "results") {
         prevCeremonyStep();
       }
     };
@@ -46,13 +47,14 @@ export default function DiapoPage() {
     currentPhotoIndex,
     currentCategoryIndex,
     rankingRevealedCount,
+    mode,
   ]);
 
   // Charger la photo en cours pour la notation
   const loadCurrentPhoto = useCallback(async () => {
     try {
       const data = await api.get("/slideshow/current");
-      console.log("[DIAPO] Current photo data:", data);
+      console.log("[DIAPO] Current photo:", data);
       if (data.hasPhoto && data.photo && data.photo.url) {
         if (data.photo.id !== lastPhotoIdRef.current) {
           lastPhotoIdRef.current = data.photo.id;
@@ -61,25 +63,24 @@ export default function DiapoPage() {
           return true;
         }
         return true;
-      } else {
-        return false;
       }
+      return false;
     } catch (e) {
-      console.error("[DIAPO] Erreur chargement photo:", e);
+      console.error("[DIAPO] Erreur:", e);
       return false;
     }
   }, []);
 
-  // Charger toutes les photos d'une catégorie
+  // Charger toutes les photos d'une catégorie (GALERIE)
   const loadAllPhotos = useCallback(async (categoryId) => {
     try {
-      console.log("[DIAPO] Loading all photos for category:", categoryId);
+      console.log("[DIAPO] Loading gallery for category:", categoryId);
       const data = await api.get(`/slideshow/all-photos/${categoryId}`);
-      console.log("[DIAPO] All photos loaded:", data.photos?.length);
+      console.log("[DIAPO] Gallery photos count:", data.photos?.length);
       setAllPhotos(data.photos || []);
       return data.photos || [];
     } catch (e) {
-      console.error("[DIAPO] Erreur chargement toutes photos:", e);
+      console.error("[DIAPO] Erreur galerie:", e);
       return [];
     }
   }, []);
@@ -90,6 +91,7 @@ export default function DiapoPage() {
       const data = await api.get("/slideshow/results-data");
       console.log("[DIAPO] Results data:", data);
       setResultsData(data);
+      // Réinitialiser le processus
       setCeremonyStep(0);
       setCurrentPhotoIndex(0);
       setCurrentCategoryIndex(0);
@@ -98,7 +100,7 @@ export default function DiapoPage() {
       setShowScores(false);
       return data;
     } catch (e) {
-      console.error("[DIAPO] Erreur chargement résultats:", e);
+      console.error("[DIAPO] Erreur résultats:", e);
       return null;
     }
   }, []);
@@ -164,6 +166,8 @@ export default function DiapoPage() {
   };
 
   const prevCeremonyStep = () => {
+    if (!resultsData) return;
+
     if (ceremonyStep === 1 && currentPhotoIndex > 0) {
       setCurrentPhotoIndex((prev) => prev - 1);
     } else if (ceremonyStep === 1 && currentPhotoIndex === 0) {
@@ -203,40 +207,52 @@ export default function DiapoPage() {
     try {
       console.log("[DIAPO] Checking status...");
       const statusData = await api.get("/slideshow/status");
-      console.log("[DIAPO] Status:", statusData);
+      console.log("[DIAPO] Status received:", statusData);
 
-      // 1. Vérifier si les résultats sont publiés
-      if (statusData.resultsPublished === true) {
-        if (mode !== "results") {
-          console.log("[DIAPO] Switching to results mode");
-          await loadResultsData();
-          setMode("results");
+      // 1. Vérifier les résultats publiés
+      if (statusData.resultsPublished === true && mode !== "results") {
+        console.log("[DIAPO] Results published, loading...");
+        await loadResultsData();
+        setMode("results");
+        return;
+      }
+
+      // 2. Vérifier la session de notation
+      if (
+        statusData.hasOpenSession === true &&
+        statusData.hasCurrentPhoto === true
+      ) {
+        const hasPhoto = await loadCurrentPhoto();
+        if (hasPhoto && currentPhoto && mode !== "notation") {
+          console.log("[DIAPO] Switching to notation mode");
+          setMode("notation");
         }
         return;
       }
 
-      // 2. Vérifier s'il y a une session ouverte avec une photo
-      if (statusData.hasOpenSession === true) {
-        const hasPhoto = await loadCurrentPhoto();
-
-        if (hasPhoto && currentPhoto) {
-          if (mode !== "notation") {
-            console.log("[DIAPO] Switching to notation mode");
-            setMode("notation");
-          }
-        } else if (mode !== "notation_waiting") {
+      // 3. Vérifier la session ouverte mais sans photo
+      if (
+        statusData.hasOpenSession === true &&
+        statusData.hasCurrentPhoto === false
+      ) {
+        if (mode !== "notation_waiting") {
+          console.log("[DIAPO] Waiting for first photo");
           setMode("notation_waiting");
         }
         return;
       }
 
-      // 3. Vérifier s'il y a une session terminée (galerie)
+      // 4. Vérifier la session terminée (GALERIE)
       if (
         statusData.hasCompletedSession === true &&
         statusData.completedCategoryId
       ) {
         if (mode !== "gallery") {
-          console.log("[DIAPO] Switching to gallery mode");
+          console.log(
+            "[DIAPO] Session completed, loading gallery for category:",
+            statusData.completedCategoryId,
+          );
+          setCompletedCategoryId(statusData.completedCategoryId);
           const photos = await loadAllPhotos(statusData.completedCategoryId);
           if (photos && photos.length > 0) {
             setMode("gallery");
@@ -247,13 +263,13 @@ export default function DiapoPage() {
         return;
       }
 
-      // 4. Sinon, mode attente
-      if (mode !== "waiting") {
-        console.log("[DIAPO] Switching to waiting mode");
+      // 5. Sinon, mode attente
+      if (mode !== "waiting" && mode !== "loading" && mode !== "results") {
+        console.log("[DIAPO] Waiting mode");
         setMode("waiting");
       }
     } catch (e) {
-      console.error("[DIAPO] Erreur status:", e);
+      console.error("[DIAPO] Error:", e);
       setError(e.message);
       setMode("error");
     }
@@ -273,7 +289,7 @@ export default function DiapoPage() {
   );
 
   const NavigationControls = () => {
-    if (!showControls) return null;
+    if (!showControls || mode !== "results") return null;
 
     let nextLabel = "Suivant ▶";
     if (ceremonyStep === 0) nextLabel = "Commencer ▶";
@@ -298,7 +314,7 @@ export default function DiapoPage() {
     );
   };
 
-  // ==================== RENDU DES MODES ====================
+  // ==================== RENDU ====================
 
   // Mode Notation - photo en cours
   if (mode === "notation" && currentPhoto && currentPhoto.url) {
@@ -332,7 +348,7 @@ export default function DiapoPage() {
     );
   }
 
-  // Mode Galerie - TOUTES LES PHOTOS (seulement les photos, pas de texte)
+  // Mode Galerie - TOUTES LES PHOTOS (seulement les photos)
   if (mode === "gallery" && allPhotos.length > 0) {
     return (
       <div className="diapo-container diapo-gallery">
@@ -347,16 +363,19 @@ export default function DiapoPage() {
             </div>
           ))}
         </div>
-        <div className="diapo-status-badge">🎬 Fin de la notation</div>
-        <button
-          className="next-results-btn"
-          onClick={async () => {
-            await loadResultsData();
-            setMode("results");
-          }}
-        >
-          🏆 Voir les résultats ▶
-        </button>
+        <div className="gallery-footer">
+          <div className="diapo-status-badge">🎬 Fin de la notation</div>
+          <button
+            className="next-results-btn"
+            onClick={async () => {
+              console.log("[DIAPO] Going to results ceremony");
+              await loadResultsData();
+              setMode("results");
+            }}
+          >
+            🏆 Voir les résultats ▶
+          </button>
+        </div>
       </div>
     );
   }
