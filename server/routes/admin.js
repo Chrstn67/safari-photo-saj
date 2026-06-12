@@ -216,7 +216,23 @@ router.delete("/users/:id", async (req, res) => {
       `[DELETE] Found ${submissionIds.length} submissions, ${photoIds.length} photos`,
     );
 
-    // 3. Mettre à jour les sessions de délibération
+    // 3. !!! CRITIQUE !!! Supprimer d'abord les références dans eye_prize_selections
+    if (submissionIds.length > 0) {
+      console.log(`[DELETE] Deleting eye_prize_selections references`);
+      const { error: eyePrizeError } = await supabase
+        .from("eye_prize_selections")
+        .delete()
+        .in("submission_id", submissionIds);
+      if (eyePrizeError) {
+        console.log(
+          "[DELETE] eye_prize_selections delete error:",
+          eyePrizeError,
+        );
+        // On continue malgré l'erreur
+      }
+    }
+
+    // 4. Mettre à jour les sessions de délibération
     if (submissionIds.length > 0) {
       const { data: sessionsToUpdate } = await supabase
         .from("deliberation_sessions")
@@ -253,7 +269,7 @@ router.delete("/users/:id", async (req, res) => {
       }
     }
 
-    // 4. Supprimer les dépendances - une par une avec try/catch
+    // 5. Supprimer les dépendances
     if (submissionIds.length > 0) {
       console.log(
         `[DELETE] Deleting scores for ${submissionIds.length} submissions`,
@@ -298,7 +314,7 @@ router.delete("/users/:id", async (req, res) => {
         console.log("[DELETE] Results delete error (non-fatal):", e5.message);
     }
 
-    // 5. Supprimer les données où l'utilisateur est juré
+    // 6. Supprimer les données où l'utilisateur est juré
     console.log(`[DELETE] Deleting juror-related data`);
     const { error: e6 } = await supabase
       .from("scores")
@@ -337,7 +353,7 @@ router.delete("/users/:id", async (req, res) => {
     if (e9)
       console.log("[DELETE] Juror notes delete error (non-fatal):", e9.message);
 
-    // 6. Supprimer les soumissions
+    // 7. Supprimer les soumissions
     if (submissionIds.length > 0) {
       console.log(`[DELETE] Deleting submissions`);
       const { error: e10 } = await supabase
@@ -351,7 +367,7 @@ router.delete("/users/:id", async (req, res) => {
         );
     }
 
-    // 7. Supprimer les photos du storage
+    // 8. Supprimer les photos du storage
     const { data: photos } = await supabase
       .from("photos")
       .select("storage_path")
@@ -372,7 +388,7 @@ router.delete("/users/:id", async (req, res) => {
       }
     }
 
-    // 8. Supprimer les photos de la BDD
+    // 9. Supprimer les photos de la BDD
     console.log(`[DELETE] Deleting photos from DB`);
     const { error: e11 } = await supabase
       .from("photos")
@@ -381,7 +397,7 @@ router.delete("/users/:id", async (req, res) => {
     if (e11)
       console.log("[DELETE] Photos delete error (non-fatal):", e11.message);
 
-    // 9. Supprimer l'audit log
+    // 10. Supprimer l'audit log
     console.log(`[DELETE] Deleting audit logs`);
     const { error: e12 } = await supabase
       .from("audit_log")
@@ -390,7 +406,7 @@ router.delete("/users/:id", async (req, res) => {
     if (e12)
       console.log("[DELETE] Audit log delete error (non-fatal):", e12.message);
 
-    // 10. Supprimer l'utilisateur
+    // 11. Supprimer l'utilisateur
     console.log(`[DELETE] Finally deleting user`);
     const { error: finalError } = await supabase
       .from("users")
