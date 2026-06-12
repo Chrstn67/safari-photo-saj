@@ -15,8 +15,8 @@ router.get("/status", requireAuth, requireDiapo, async (req, res) => {
   );
 
   try {
-    // Session ouverte avec photo courante
-    const { data: openSession, error: openError } = await supabase
+    // Sessions ouvertes (il peut y en avoir plusieurs, une par catégorie)
+    const { data: openSessions, error: openError } = await supabase
       .from("deliberation_sessions")
       .select(
         `
@@ -28,18 +28,24 @@ router.get("/status", requireAuth, requireDiapo, async (req, res) => {
       `,
       )
       .eq("status", "open")
-      .maybeSingle();
+      .order("created_at");
 
     if (openError) {
       console.error("[SLIDESHOW_STATUS] openSession error:", openError);
     }
 
+    // On prend la première session ouverte qui a une photo en cours
+    const openSession =
+      (openSessions || []).find((s) => !!s.current_photo_id) ||
+      (openSessions || [])[0] ||
+      null;
+
     // Session complétée (notation terminée)
-    const { data: completedSession, error: completedError } = await supabase
+    const { data: completedSessions, error: completedError } = await supabase
       .from("deliberation_sessions")
       .select("id, category_id, status")
       .eq("status", "completed")
-      .maybeSingle();
+      .order("created_at");
 
     if (completedError) {
       console.error(
@@ -47,6 +53,8 @@ router.get("/status", requireAuth, requireDiapo, async (req, res) => {
         completedError,
       );
     }
+
+    const completedSession = (completedSessions || [])[0] || null;
 
     // Résultats publiés
     const { data: resultsStatus, error: resultsError } = await supabase
@@ -101,7 +109,8 @@ router.get("/current", requireAuth, requireDiapo, async (req, res) => {
   console.log("[SLIDESHOW_CURRENT] Called");
 
   try {
-    const { data: openSession, error: sessionError } = await supabase
+    // Récupérer toutes les sessions ouvertes, prendre celle qui a une photo en cours
+    const { data: openSessions, error: sessionError } = await supabase
       .from("deliberation_sessions")
       .select(
         `
@@ -120,9 +129,16 @@ router.get("/current", requireAuth, requireDiapo, async (req, res) => {
       `,
       )
       .eq("status", "open")
-      .maybeSingle();
+      .order("created_at");
 
-    if (sessionError) {
+    const openSession =
+      (openSessions || []).find(
+        (s) => !!s.current_photo_id && !!s.current_photo,
+      ) ||
+      (openSessions || [])[0] ||
+      null;
+
+    if (!openSessions && sessionError) {
       console.error("[SLIDESHOW_CURRENT] session error:", sessionError);
       return res.status(500).json({ error: sessionError.message });
     }
