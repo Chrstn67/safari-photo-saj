@@ -4,15 +4,15 @@ import cors from "cors";
 import helmet from "helmet";
 import dotenv from "dotenv";
 
-import authRoutes from "../routes/auth.js";
-import photosRoutes from "../routes/photos.js";
-import categoriesRoutes from "../routes/categories.js";
-import criteriaRoutes from "../routes/criteria.js";
-import deliberationsRoutes from "../routes/deliberations.js";
-import scoresRoutes from "../routes/scores.js";
-import resultsRoutes from "../routes/results.js";
-import slideshowRoutes from "../routes/slideshow.js"; // ← IMPORTANT : ajouté
-import adminRoutes from "../routes/admin.js";
+import authRoutes from "./routes/auth.js";
+import photosRoutes from "./routes/photos.js";
+import categoriesRoutes from "./routes/categories.js";
+import criteriaRoutes from "./routes/criteria.js";
+import deliberationsRoutes from "./routes/deliberations.js";
+import scoresRoutes from "./routes/scores.js";
+import resultsRoutes from "./routes/results.js";
+import slideshowRoutes from "./routes/slideshow.js";
+import adminRoutes from "./routes/admin.js";
 
 dotenv.config();
 
@@ -35,7 +35,7 @@ app.use("/api/criteria", criteriaRoutes);
 app.use("/api/deliberations", deliberationsRoutes);
 app.use("/api/scores", scoresRoutes);
 app.use("/api/results", resultsRoutes);
-app.use("/api/slideshow", slideshowRoutes); // ← AJOUTÉ
+app.use("/api/slideshow", slideshowRoutes);
 app.use("/api/admin", adminRoutes);
 
 app.get("/api/health", (_req, res) => {
@@ -51,6 +51,8 @@ app.get("/api/debug-env", (_req, res) => {
   });
 });
 
-export default function handler(req, res) {
-  app(req, res);
-}
+// ✅ IMPORTANT: Pour Vercel, il faut exporter l'app et un handler
+export default app; // ← Changement clé : exporter app directement
+
+// Pour les environnements serverless Vercel
+export const handler = app;

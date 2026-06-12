@@ -21,12 +21,21 @@ async function requireAuth(req, res, next) {
         .status(401)
         .json({ error: "Utilisateur invalide ou désactivé" });
     }
+
+    // Récupérer le nom du rôle
+    let roleName = user.roles?.name;
+    if (!roleName) {
+      // Mapping des role_id vers nom
+      const roleMap = { 1: "participant", 2: "juror", 3: "admin", 4: "diapo" };
+      roleName = roleMap[user.role_id] || "participant";
+    }
+
     req.user = {
       id: user.id,
       firstName: user.first_name,
       lastName: user.last_name,
       roleId: user.role_id,
-      role: user.roles?.name || (user.role_id === 4 ? "diapo" : "participant"),
+      role: roleName,
     };
     next();
   } catch (e) {

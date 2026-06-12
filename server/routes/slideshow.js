@@ -12,26 +12,49 @@ const router = express.Router();
 // GET /api/slideshow/status
 router.get("/status", requireAuth, requireDiapo, async (req, res) => {
   try {
+    console.log("[SLIDESHOW_STATUS] Called by user:", req.user?.id);
+
     // Vérifier s'il y a une session ouverte
-    const { data: openSession } = await supabase
+    const { data: openSession, error: openError } = await supabase
       .from("deliberation_sessions")
       .select("id, category_id, status, current_photo_id, categories(name)")
       .eq("status", "open")
       .maybeSingle();
 
+    if (openError) {
+      console.error("[SLIDESHOW_STATUS] openSession error:", openError);
+    }
+
     // Vérifier s'il y a une session terminée
-    const { data: completedSession } = await supabase
+    const { data: completedSession, error: completedError } = await supabase
       .from("deliberation_sessions")
       .select("id, category_id, status")
       .eq("status", "completed")
       .maybeSingle();
 
+    if (completedError) {
+      console.error(
+        "[SLIDESHOW_STATUS] completedSession error:",
+        completedError,
+      );
+    }
+
     // Vérifier si les résultats sont publiés
-    const { data: resultsStatus } = await supabase
+    const { data: resultsStatus, error: resultsError } = await supabase
       .from("results")
       .select("is_published")
       .limit(1)
       .maybeSingle();
+
+    if (resultsError) {
+      console.error("[SLIDESHOW_STATUS] resultsStatus error:", resultsError);
+    }
+
+    console.log("[SLIDESHOW_STATUS] Response:", {
+      hasOpenSession: !!openSession,
+      hasCompletedSession: !!completedSession,
+      resultsPublished: resultsStatus?.is_published || false,
+    });
 
     res.json({
       hasOpenSession: !!openSession,
@@ -47,7 +70,7 @@ router.get("/status", requireAuth, requireDiapo, async (req, res) => {
       resultsPublished: resultsStatus?.is_published || false,
     });
   } catch (e) {
-    console.error("[SLIDESHOW_STATUS]", e);
+    console.error("[SLIDESHOW_STATUS] Exception:", e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -55,7 +78,9 @@ router.get("/status", requireAuth, requireDiapo, async (req, res) => {
 // GET /api/slideshow/current
 router.get("/current", requireAuth, requireDiapo, async (req, res) => {
   try {
-    const { data: openSession } = await supabase
+    console.log("[SLIDESHOW_CURRENT] Called by user:", req.user?.id);
+
+    const { data: openSession, error: sessionError } = await supabase
       .from("deliberation_sessions")
       .select(
         `
@@ -76,28 +101,45 @@ router.get("/current", requireAuth, requireDiapo, async (req, res) => {
       .eq("status", "open")
       .maybeSingle();
 
+    if (sessionError) {
+      console.error("[SLIDESHOW_CURRENT] session error:", sessionError);
+      return res.status(500).json({ error: sessionError.message });
+    }
+
     if (
       !openSession ||
       !openSession.current_photo_id ||
       !openSession.current_photo
     ) {
+      console.log("[SLIDESHOW_CURRENT] No active session or photo");
       return res.json({ hasPhoto: false, photo: null, category: null });
     }
 
     const storagePath = openSession.current_photo.photos?.storage_path;
     if (!storagePath) {
+      console.log("[SLIDESHOW_CURRENT] No storage path for photo");
       return res.json({ hasPhoto: false, photo: null, category: null });
     }
 
     let url = null;
     try {
-      const { data: signed } = await supabase.storage
+      const { data: signed, error: signedError } = await supabase.storage
         .from("photos")
         .createSignedUrl(storagePath, 3600);
-      url = signed?.signedUrl;
+
+      if (signedError) {
+        console.error("[SLIDESHOW_CURRENT] Signed URL error:", signedError);
+      } else {
+        url = signed?.signedUrl;
+      }
     } catch (err) {
-      console.error("[SLIDESHOW] URL signed error:", err);
+      console.error("[SLIDESHOW_CURRENT] URL signed exception:", err);
     }
+
+    console.log(
+      "[SLIDESHOW_CURRENT] Found photo:",
+      openSession.current_photo.anonymous_id,
+    );
 
     res.json({
       hasPhoto: true,
@@ -110,7 +152,7 @@ router.get("/current", requireAuth, requireDiapo, async (req, res) => {
       category: openSession.categories?.name || null,
     });
   } catch (e) {
-    console.error("[SLIDESHOW_CURRENT]", e);
+    console.error("[SLIDESHOW_CURRENT] Exception:", e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -124,6 +166,8 @@ router.get(
     const { categoryId } = req.params;
 
     try {
+      console.log("[SLIDESHOW_ALL_PHOTOS] categoryId:", categoryId);
+
       const { data: submissions, error } = await supabase
         .from("submissions")
         .select(
@@ -136,7 +180,12 @@ router.get(
         .eq("category_id", categoryId)
         .order("display_order", { ascending: true });
 
-      if (error || !submissions?.length) {
+      if (error) {
+        console.error("[SLIDESHOW_ALL_PHOTOS] error:", error);
+        return res.status(500).json({ error: error.message });
+      }
+
+      if (!submissions?.length) {
         return res.json({ photos: [] });
       }
 
@@ -150,7 +199,13 @@ router.get(
                 .from("photos")
                 .createSignedUrl(storagePath, 3600);
               url = signed?.signedUrl;
-            } catch (err) {}
+            } catch (err) {
+              console.error(
+                "[SLIDESHOW_ALL_PHOTOS] URL error for",
+                sub.id,
+                err,
+              );
+            }
           }
           return {
             id: sub.id,
@@ -162,7 +217,7 @@ router.get(
 
       res.json({ photos: photosWithUrls });
     } catch (e) {
-      console.error("[SLIDESHOW_ALL_PHOTOS]", e);
+      console.error("[SLIDESHOW_ALL_PHOTOS] Exception:", e);
       res.status(500).json({ error: e.message });
     }
   },

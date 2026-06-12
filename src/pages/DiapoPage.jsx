@@ -13,6 +13,11 @@ export default function DiapoPage() {
   const [resultsData, setResultsData] = useState(null);
   const [status, setStatus] = useState(null);
 
+  console.log(
+    "[DIAPO] Token présent ?",
+    !!localStorage.getItem("safari_token"),
+  );
+  console.log("[DIAPO] User from auth:", user);
   // Vérifier l'état global
   const checkStatus = useCallback(async () => {
     try {
