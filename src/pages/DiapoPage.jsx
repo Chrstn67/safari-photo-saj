@@ -26,16 +26,35 @@ export default function DiapoPage() {
   const lastPhotoIdRef = useRef(null);
   const intervalRef = useRef(null);
 
+  // CORRECTIF : ref pour suivre le mode sans le mettre dans les dépendances de checkStatus
+  // et verrou pour empêcher le polling d'écraser les modes manuels (gallery, results)
+  const modeRef = useRef("loading");
+  const modeLocked = useRef(false);
+
+  // Wrapper setMode qui met aussi à jour le ref
+  const setModeAndRef = useCallback((newMode) => {
+    modeRef.current = newMode;
+    setMode(newMode);
+  }, []);
+
   // Raccourci clavier
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.ctrlKey && e.shiftKey && e.key === "H") {
         setShowControls((prev) => !prev);
       }
-      if (e.key === "ArrowRight" && showControls && mode === "results") {
+      if (
+        e.key === "ArrowRight" &&
+        showControls &&
+        modeRef.current === "results"
+      ) {
         nextCeremonyStep();
       }
-      if (e.key === "ArrowLeft" && showControls && mode === "results") {
+      if (
+        e.key === "ArrowLeft" &&
+        showControls &&
+        modeRef.current === "results"
+      ) {
         prevCeremonyStep();
       }
     };
@@ -47,7 +66,6 @@ export default function DiapoPage() {
     currentPhotoIndex,
     currentCategoryIndex,
     rankingRevealedCount,
-    mode,
   ]);
 
   // Charger la photo en cours pour la notation
@@ -202,52 +220,68 @@ export default function DiapoPage() {
     }
   };
 
-  // Vérification du statut - CORRIGÉE
+  // Vérification du statut
   const checkStatus = useCallback(async () => {
+    // CORRECTIF : si le mode est verrouillé (galerie ou résultats ouverts manuellement),
+    // on ne laisse passer que la détection de "resultsPublished" pour passer en résultats automatiquement.
+    const currentMode = modeRef.current;
+
     try {
-      console.log("[DIAPO] Checking status...");
+      console.log(
+        "[DIAPO] Checking status... mode:",
+        currentMode,
+        "locked:",
+        modeLocked.current,
+      );
       const statusData = await api.get("/slideshow/status");
       console.log("[DIAPO] Status received:", statusData);
 
-      // 1. Vérifier les résultats publiés
-      if (statusData.resultsPublished === true && mode !== "results") {
+      // 1. Résultats publiés côté serveur → priorité absolue, même si verrou
+      if (statusData.resultsPublished === true && currentMode !== "results") {
         console.log("[DIAPO] Results published, loading...");
-        await loadResultsData();
-        setMode("results");
+        modeLocked.current = true;
+        const data = await loadResultsData();
+        if (data) setModeAndRef("results");
         return;
       }
 
-      // 2. Vérifier la session de notation
+      // 2. Si le mode est déjà verrouillé (gallery ou results ouverts manuellement), on stoppe ici
+      if (modeLocked.current) {
+        console.log("[DIAPO] Mode locked, skipping polling update");
+        return;
+      }
+
+      // 3. Session de notation en cours avec photo
       if (
         statusData.hasOpenSession === true &&
         statusData.hasCurrentPhoto === true
       ) {
         const hasPhoto = await loadCurrentPhoto();
-        if (hasPhoto && currentPhoto && mode !== "notation") {
+        if (hasPhoto && currentMode !== "notation") {
           console.log("[DIAPO] Switching to notation mode");
-          setMode("notation");
+          setModeAndRef("notation");
         }
         return;
       }
 
-      // 3. Vérifier la session ouverte mais sans photo
+      // 4. Session ouverte mais sans photo encore
       if (
         statusData.hasOpenSession === true &&
         statusData.hasCurrentPhoto === false
       ) {
-        if (mode !== "notation_waiting") {
+        if (currentMode !== "notation_waiting") {
           console.log("[DIAPO] Waiting for first photo");
-          setMode("notation_waiting");
+          setModeAndRef("notation_waiting");
         }
         return;
       }
 
-      // 4. Vérifier la session terminée (GALERIE)
+      // 5. Session terminée → galerie
       if (
         statusData.hasCompletedSession === true &&
         statusData.completedCategoryId
       ) {
-        if (mode !== "gallery") {
+        if (currentMode !== "gallery") {
           console.log(
             "[DIAPO] Session completed, loading gallery for category:",
             statusData.completedCategoryId,
@@ -255,25 +289,27 @@ export default function DiapoPage() {
           setCompletedCategoryId(statusData.completedCategoryId);
           const photos = await loadAllPhotos(statusData.completedCategoryId);
           if (photos && photos.length > 0) {
-            setMode("gallery");
+            // CORRECTIF : verrouiller le mode galerie pour éviter qu'il soit écrasé
+            modeLocked.current = true;
+            setModeAndRef("gallery");
           } else {
-            setMode("waiting");
+            setModeAndRef("waiting");
           }
         }
         return;
       }
 
-      // 5. Sinon, mode attente
-      if (mode !== "waiting" && mode !== "loading" && mode !== "results") {
+      // 6. Sinon, mode attente
+      if (currentMode !== "waiting" && currentMode !== "loading") {
         console.log("[DIAPO] Waiting mode");
-        setMode("waiting");
+        setModeAndRef("waiting");
       }
     } catch (e) {
       console.error("[DIAPO] Error:", e);
       setError(e.message);
-      setMode("error");
+      setModeAndRef("error");
     }
-  }, [loadCurrentPhoto, loadAllPhotos, loadResultsData, mode, currentPhoto]);
+  }, [loadCurrentPhoto, loadAllPhotos, loadResultsData, setModeAndRef]);
 
   // Polling toutes les 2 secondes
   useEffect(() => {
@@ -357,7 +393,7 @@ export default function DiapoPage() {
           <LogoutButton />
         </div>
         <div className="gallery-grid">
-          {allPhotos.map((photo, idx) => (
+          {allPhotos.map((photo) => (
             <div key={photo.id} className="gallery-item">
               <img src={photo.url} alt="" />
             </div>
@@ -369,8 +405,12 @@ export default function DiapoPage() {
             className="next-results-btn"
             onClick={async () => {
               console.log("[DIAPO] Going to results ceremony");
-              await loadResultsData();
-              setMode("results");
+              // CORRECTIF : charger les résultats PUIS changer le mode,
+              // le verrou est déjà actif donc le polling ne peut pas interférer
+              const data = await loadResultsData();
+              if (data) {
+                setModeAndRef("results");
+              }
             }}
           >
             🏆 Voir les résultats ▶
