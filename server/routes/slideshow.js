@@ -10,8 +10,8 @@ router.get("/status", requireAuth, requireDiapo, async (req, res) => {
   console.log("[SLIDESHOW_STATUS] Called");
 
   try {
-    // Récupérer TOUTES les sessions ouvertes (peut y en avoir plusieurs)
-    const { data: openSessions, error: openError } = await supabase
+    // Récupérer la session ouverte avec sa photo courante
+    const { data: openSession, error: openError } = await supabase
       .from("deliberation_sessions")
       .select(
         `
@@ -22,31 +22,26 @@ router.get("/status", requireAuth, requireDiapo, async (req, res) => {
         categories:category_id (name)
       `,
       )
-      .eq("status", "open");
+      .eq("status", "open")
+      .maybeSingle();
 
     if (openError) {
-      console.error("[SLIDESHOW_STATUS] openSessions error:", openError);
-    }
-
-    // Prendre la première session ouverte (ou la plus récente)
-    const openSession =
-      openSessions && openSessions.length > 0 ? openSessions[0] : null;
-    const hasOpenSession = !!openSession;
-    const hasCurrentPhoto = hasOpenSession && !!openSession.current_photo_id;
-
-    console.log(
-      `[SLIDESHOW_STATUS] ${openSessions?.length || 0} session(s) ouverte(s)`,
-    );
-    if (openSession) {
-      console.log("[SLIDESHOW_STATUS] Using session:", openSession.category_id);
+      console.error("[SLIDESHOW_STATUS] openSession error:", openError);
     }
 
     // Vérifier si une session est complétée
-    const { data: completedSessions, error: completedError } = await supabase
+    const { data: completedSession, error: completedError } = await supabase
       .from("deliberation_sessions")
       .select("id, category_id, status")
       .eq("status", "completed")
-      .limit(1);
+      .maybeSingle();
+
+    if (completedError) {
+      console.error(
+        "[SLIDESHOW_STATUS] completedSession error:",
+        completedError,
+      );
+    }
 
     // Vérifier les résultats publiés
     const { data: resultsStatus, error: resultsError } = await supabase
@@ -54,6 +49,20 @@ router.get("/status", requireAuth, requireDiapo, async (req, res) => {
       .select("is_published")
       .limit(1)
       .maybeSingle();
+
+    if (resultsError) {
+      console.error("[SLIDESHOW_STATUS] resultsStatus error:", resultsError);
+    }
+
+    const hasOpenSession = !!openSession;
+    const hasCurrentPhoto = hasOpenSession && !!openSession.current_photo_id;
+
+    console.log(
+      "[SLIDESHOW_STATUS] hasOpenSession:",
+      hasOpenSession,
+      "hasCurrentPhoto:",
+      hasCurrentPhoto,
+    );
 
     res.json({
       hasOpenSession: hasOpenSession,
@@ -67,7 +76,7 @@ router.get("/status", requireAuth, requireDiapo, async (req, res) => {
             currentPhotoId: openSession.current_photo_id,
           }
         : null,
-      hasCompletedSession: (completedSessions?.length || 0) > 0,
+      hasCompletedSession: !!completedSession,
       resultsPublished: resultsStatus?.is_published || false,
     });
   } catch (e) {
@@ -81,8 +90,8 @@ router.get("/current", requireAuth, requireDiapo, async (req, res) => {
   console.log("[SLIDESHOW_CURRENT] Called");
 
   try {
-    // Récupérer la première session ouverte
-    const { data: openSessions, error: sessionError } = await supabase
+    // Récupérer la session ouverte avec sa photo
+    const { data: openSession, error: sessionError } = await supabase
       .from("deliberation_sessions")
       .select(
         `
@@ -100,41 +109,30 @@ router.get("/current", requireAuth, requireDiapo, async (req, res) => {
         )
       `,
       )
-      .eq("status", "open");
+      .eq("status", "open")
+      .maybeSingle();
 
     if (sessionError) {
       console.error("[SLIDESHOW_CURRENT] session error:", sessionError);
       return res.status(500).json({ error: sessionError.message });
     }
 
-    if (!openSessions || openSessions.length === 0) {
-      console.log("[SLIDESHOW_CURRENT] No open sessions");
-      return res.json({ hasPhoto: false, photo: null, category: null });
-    }
-
-    const openSession = openSessions[0];
-    console.log("[SLIDESHOW_CURRENT] Using session:", openSession.category_id);
-    console.log(
-      "[SLIDESHOW_CURRENT] current_photo_id:",
-      openSession.current_photo_id,
-    );
-
-    if (!openSession.current_photo_id) {
-      console.log("[SLIDESHOW_CURRENT] Session has no current_photo_id");
-      return res.json({ hasPhoto: false, photo: null, category: null });
-    }
-
-    if (!openSession.current_photo) {
-      console.log("[SLIDESHOW_CURRENT] Current photo not found");
+    if (
+      !openSession ||
+      !openSession.current_photo_id ||
+      !openSession.current_photo
+    ) {
+      console.log("[SLIDESHOW_CURRENT] No active session or photo");
       return res.json({ hasPhoto: false, photo: null, category: null });
     }
 
     const storagePath = openSession.current_photo.photos?.storage_path;
     if (!storagePath) {
-      console.error("[SLIDESHOW_CURRENT] No storage path");
+      console.log("[SLIDESHOW_CURRENT] No storage path");
       return res.json({ hasPhoto: false, photo: null, category: null });
     }
 
+    // Générer URL signée
     let url = null;
     try {
       const { data: signed, error: signedError } = await supabase.storage

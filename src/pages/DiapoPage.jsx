@@ -20,27 +20,14 @@ export default function DiapoPage() {
       console.log("[DIAPO] Checking status...");
       const statusData = await api.get("/slideshow/status");
       console.log("[DIAPO] Status received:", statusData);
-
       setStatus(statusData);
 
       if (statusData.resultsPublished) {
         await loadResultsData();
         setMode("results");
       } else if (statusData.hasOpenSession && statusData.hasCurrentPhoto) {
-        // Une session ouverte existe avec une photo
         await loadCurrentPhoto();
         setMode("notation");
-      } else if (statusData.hasOpenSession && !statusData.hasCurrentPhoto) {
-        // Session ouverte mais pas de photo - essayer de charger quand même
-        console.log(
-          "[DIAPO] Session ouverte sans photo, tentative de chargement...",
-        );
-        await loadCurrentPhoto();
-        if (currentPhoto) {
-          setMode("notation");
-        } else {
-          setMode("waiting");
-        }
       } else if (statusData.hasCompletedSession) {
         await loadAllPhotos();
         setMode("gallery");
@@ -53,7 +40,7 @@ export default function DiapoPage() {
       setError(e.message);
       setMode("error");
     }
-  }, [loadCurrentPhoto, loadAllPhotos, loadResultsData]);
+  }, []);
 
   const loadCurrentPhoto = async () => {
     try {
