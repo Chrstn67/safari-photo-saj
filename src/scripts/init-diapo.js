@@ -13,6 +13,17 @@ const supabase = createClient(
 async function initDiapoAccount() {
   console.log("🔧 Initialisation du compte DIAPO...");
 
+  // S'assurer que le rôle 4 existe
+  const { error: roleError } = await supabase
+    .from("roles")
+    .upsert({ id: 4, name: "diapo" }, { onConflict: "id" });
+
+  if (roleError) {
+    console.error("❌ Erreur création rôle diapo:", roleError.message);
+    return;
+  }
+  console.log("✅ Rôle 'diapo' vérifié/créé");
+
   // Vérifier si le compte DIAPO existe déjà
   const { data: existing, error: findError } = await supabase
     .from("users")
@@ -26,21 +37,20 @@ async function initDiapoAccount() {
     console.log(`   ID: ${existing.id}`);
     console.log(`   Nom: ${existing.first_name} ${existing.last_name}`);
     console.log(
-      `   Rôle: ${existing.role_id === 2 ? "Juré" : existing.role_id === 3 ? "Admin" : "Participant"}`,
+      `   Rôle: ${existing.role_id === 4 ? "Diapo" : existing.role_id === 2 ? "Juré" : existing.role_id === 3 ? "Admin" : "Participant"}`,
     );
 
-    // Si le rôle n'est pas juré, le mettre à jour
-    if (existing.role_id !== 2) {
-      console.log("📝 Mise à jour du rôle vers Juré...");
+    if (existing.role_id !== 4) {
+      console.log("📝 Mise à jour du rôle vers Diapo...");
       const { error: updateError } = await supabase
         .from("users")
-        .update({ role_id: 2 })
+        .update({ role_id: 4 })
         .eq("id", existing.id);
 
       if (updateError) {
         console.error("❌ Erreur mise à jour rôle:", updateError.message);
       } else {
-        console.log("✅ Rôle mis à jour vers Juré");
+        console.log("✅ Rôle mis à jour vers Diapo");
       }
     }
     return;
@@ -49,14 +59,14 @@ async function initDiapoAccount() {
   // Hasher le mot de passe
   const passwordHash = await bcrypt.hash("DiapoSafari", 12);
 
-  // Créer le compte DIAPO (role_id = 2 pour juré, car il voit les photos)
+  // Créer le compte DIAPO (role_id = 4)
   const { data: user, error } = await supabase
     .from("users")
     .insert({
       first_name: "DIAPO",
       last_name: "SAJ",
       password_hash: passwordHash,
-      role_id: 2, // 2 = juré (pour voir les photos en notation)
+      role_id: 4,
       is_active: true,
     })
     .select("id, first_name, last_name, role_id")
@@ -70,7 +80,7 @@ async function initDiapoAccount() {
   console.log("✅ Compte DIAPO créé avec succès !");
   console.log(`   ID: ${user.id}`);
   console.log(`   Nom: ${user.first_name} ${user.last_name}`);
-  console.log(`   Rôle: Juré (2)`);
+  console.log(`   Rôle: Diapo (4)`);
   console.log("\n🔐 Vous pouvez maintenant vous connecter avec :");
   console.log(`   Prénom: DIAPO`);
   console.log(`   Nom: SAJ`);

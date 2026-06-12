@@ -11,7 +11,6 @@ async function requireAuth(req, res, next) {
   const token = header.slice(7);
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
-    // Récupère l'utilisateur courant pour s'assurer qu'il est toujours actif
     const { data: user, error } = await supabase
       .from("users")
       .select("id, first_name, last_name, role_id, is_active, roles(name)")
@@ -28,7 +27,7 @@ async function requireAuth(req, res, next) {
       firstName: user.first_name,
       lastName: user.last_name,
       roleId: user.role_id,
-      role: user.roles.name, // 'participant' | 'juror' | 'admin'
+      role: user.roles?.name || (user.role_id === 4 ? "diapo" : "participant"),
     };
     next();
   } catch (e) {
@@ -36,7 +35,6 @@ async function requireAuth(req, res, next) {
   }
 }
 
-/* ── Guards de rôle ── */
 function requireRole(...roles) {
   return (req, res, next) => {
     if (!req.user || !roles.includes(req.user.role)) {
@@ -51,6 +49,7 @@ function requireRole(...roles) {
 const requireAdmin = requireRole("admin");
 const requireJuror = requireRole("juror", "admin");
 const requireParticipant = requireRole("participant");
+const requireDiapo = requireRole("diapo");
 
 export {
   requireAuth,
@@ -58,4 +57,5 @@ export {
   requireAdmin,
   requireJuror,
   requireParticipant,
+  requireDiapo,
 };

@@ -1159,7 +1159,6 @@ table {
     }
   }
 }
-
 /* ── PAGE DIAPORAMA DÉDIÉE ── */
 .diapo-container {
   position: fixed;
@@ -1225,7 +1224,6 @@ table {
   font-size: 0.7rem;
 }
 
-/* Mode galerie */
 .diapo-gallery {
   background: #0a0a0a;
   padding: 2rem;
@@ -1260,7 +1258,6 @@ table {
   }
 }
 
-/* Mode résultats */
 .diapo-results {
   background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
   padding: 2rem;
@@ -1290,7 +1287,228 @@ table {
   }
 }
 
-/* Animation pour l'auto-avancement */
+/* Résultats */
+.results-step {
+  width: 100%;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.results-title {
+  font-family: "DM Serif Display", serif;
+  font-size: clamp(1.5rem, 5vw, 2.5rem);
+  color: #ffd700;
+  text-align: center;
+  margin-bottom: 2rem;
+  letter-spacing: 0.1em;
+}
+
+.results-favorites {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 2rem;
+  width: 100%;
+  max-width: 1200px;
+}
+
+.favorite-card {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  border-radius: 20px;
+  overflow: hidden;
+  text-align: center;
+  padding: 1rem;
+
+  & img {
+    width: 100%;
+    aspect-ratio: 1;
+    object-fit: cover;
+    border-radius: 12px;
+  }
+
+  & .favorite-count {
+    margin-top: 1rem;
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: #ff6b6b;
+  }
+}
+
+.results-categories {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 2rem;
+  width: 100%;
+  max-width: 1200px;
+}
+
+.category-card {
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(10px);
+  border-radius: 20px;
+  overflow: hidden;
+  text-align: center;
+  padding: 1.5rem;
+
+  & .category-name {
+    font-size: 1.2rem;
+    font-weight: bold;
+    color: #ffd700;
+    margin-bottom: 1rem;
+  }
+
+  & img {
+    width: 100%;
+    aspect-ratio: 1;
+    object-fit: cover;
+    border-radius: 12px;
+  }
+}
+
+.results-ranking {
+  width: 100%;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.ranking-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.8rem 1.5rem;
+  margin-bottom: 0.5rem;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 50px;
+  backdrop-filter: blur(5px);
+
+  &.rank-1 {
+    background: linear-gradient(
+      135deg,
+      rgba(255, 215, 0, 0.3),
+      rgba(255, 215, 0, 0.1)
+    );
+    border: 1px solid rgba(255, 215, 0, 0.5);
+  }
+
+  &.rank-2 {
+    background: linear-gradient(
+      135deg,
+      rgba(192, 192, 192, 0.3),
+      rgba(192, 192, 192, 0.1)
+    );
+    border: 1px solid rgba(192, 192, 192, 0.5);
+  }
+
+  &.rank-3 {
+    background: linear-gradient(
+      135deg,
+      rgba(205, 127, 50, 0.3),
+      rgba(205, 127, 50, 0.1)
+    );
+    border: 1px solid rgba(205, 127, 50, 0.5);
+  }
+
+  & .ranking-position {
+    font-size: 1.8rem;
+    min-width: 60px;
+  }
+
+  & .ranking-name {
+    flex: 1;
+    font-size: 1.1rem;
+    font-weight: 500;
+    margin: 0 1rem;
+  }
+
+  & .ranking-score {
+    font-size: 1.2rem;
+    font-weight: bold;
+    color: #ffd700;
+  }
+
+  & .ranking-placeholder {
+    font-size: 1rem;
+    color: #888;
+    letter-spacing: 2px;
+  }
+}
+
+.results-eyeprize {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.eyeprize-card {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 215, 0, 0.2),
+    rgba(255, 215, 0, 0.05)
+  );
+  border-radius: 30px;
+  overflow: hidden;
+  text-align: center;
+  padding: 2rem;
+  max-width: 500px;
+  width: 100%;
+  border: 2px solid rgba(255, 215, 0, 0.5);
+
+  & img {
+    width: 100%;
+    aspect-ratio: 1;
+    object-fit: cover;
+    border-radius: 20px;
+  }
+
+  & .eyeprize-badge {
+    margin-top: 1rem;
+    padding: 0.5rem 1rem;
+    background: rgba(255, 215, 0, 0.2);
+    border-radius: 50px;
+    display: inline-block;
+    font-size: 0.9rem;
+    color: #ffd700;
+  }
+}
+
+.eyeprize-announce {
+  margin-top: 2rem;
+  text-align: center;
+  color: #ffd700;
+  font-size: 1.1rem;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.results-end {
+  text-align: center;
+
+  & .end-icon {
+    font-size: 4rem;
+    margin-bottom: 1rem;
+  }
+
+  & p {
+    font-size: 1.2rem;
+    color: #fff;
+  }
+}
+
+.fade-in {
+  animation: fadeInUp 0.5s ease forwards;
+  opacity: 0;
+  transform: translateY(20px);
+}
+
+@keyframes fadeInUp {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @keyframes pulse {
   0%,
   100% {

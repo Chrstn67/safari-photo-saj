@@ -1,78 +1,70 @@
 // backend/routes/slideshow.js
 import express from "express";
 import supabase from "../utils/supabase.js";
-import { requireAuth, requireAdmin, requireJuror } from "../middleware/auth.js";
-import { log } from "../utils/audit.js";
+import { requireAuth, requireDiapo } from "../middleware/auth.js";
 
 const router = express.Router();
 
-// ════════════════════════════════════════════════════════════════
-// MODE DIAPORAMA - ÉCRAN DE PROJECTION
-// ════════════════════════════════════════════════════════════════
+// Toutes les routes slideshow sont protégées par le rôle diapo
+router.use(requireAuth, requireDiapo);
 
-// GET /api/slideshow/current
-// Retourne la photo actuellement en notation (pour l'écran public)
-router.get("/current", requireAuth, async (req, res) => {
-  const { data: openSession } = await supabase
-    .from("deliberation_sessions")
-    .select(
-      `
-      category_id,
-      categories(id, name),
-      current_photo_id,
-      current_photo:submissions!current_photo_id(
-        id,
-        anonymous_id,
-        display_order,
-        photos(storage_path)
-      )
-    `,
-    )
-    .eq("status", "open")
-    .single();
-
-  if (!openSession?.current_photo?.photos?.storage_path) {
-    return res.json({ hasPhoto: false, photo: null, category: null });
-  }
-
-  // Générer URL signée
-  let url = null;
+// GET /api/slideshow/current - Photo en cours de notation
+router.get("/current", async (req, res) => {
   try {
-    const { data: signed } = await supabase.storage
-      .from("photos")
-      .createSignedUrl(openSession.current_photo.photos.storage_path, 3600);
-    url = signed?.signedUrl;
-  } catch (err) {
-    console.error("Erreur URL signée:", err);
-  }
+    const { data: openSession } = await supabase
+      .from("deliberation_sessions")
+      .select(
+        `
+        category_id,
+        categories(id, name),
+        current_photo_id,
+        current_photo:submissions!current_photo_id(
+          id,
+          photos(storage_path)
+        )
+      `,
+      )
+      .eq("status", "open")
+      .single();
 
-  res.json({
-    hasPhoto: true,
-    photo: {
-      id: openSession.current_photo.id,
-      url: url,
-    },
-    category: openSession.categories?.name || null,
-  });
+    if (!openSession?.current_photo?.photos?.storage_path) {
+      return res.json({ hasPhoto: false, photo: null, category: null });
+    }
+
+    let url = null;
+    try {
+      const { data: signed } = await supabase.storage
+        .from("photos")
+        .createSignedUrl(openSession.current_photo.photos.storage_path, 3600);
+      url = signed?.signedUrl;
+    } catch (err) {
+      console.error("Erreur URL signée:", err);
+    }
+
+    res.json({
+      hasPhoto: true,
+      photo: { id: openSession.current_photo.id, url },
+      category: openSession.categories?.name || null,
+    });
+  } catch (e) {
+    console.error("[SLIDESHOW_CURRENT]", e);
+    res.status(500).json({ error: e.message });
+  }
 });
 
-// GET /api/slideshow/all-photos/:categoryId
-// Retourne toutes les photos notées (sans identifiants)
-router.get(
-  "/all-photos/:categoryId",
-  requireAuth,
-  requireAdmin,
-  async (req, res) => {
-    const { categoryId } = req.params;
+// GET /api/slideshow/all-photos/:categoryId - Toutes les photos notées
+router.get("/all-photos/:categoryId", async (req, res) => {
+  const { categoryId } = req.params;
 
+  try {
     const { data: submissions } = await supabase
       .from("submissions")
       .select(
         `
-      id,
-      display_order,
-      photos(storage_path)
-    `,
+        id,
+        display_order,
+        photos(storage_path)
+      `,
       )
       .eq("category_id", categoryId)
       .order("display_order");
@@ -101,14 +93,27 @@ router.get(
     );
 
     res.json({ photos: photosWithUrls });
-  },
-);
+  } catch (e) {
+    console.error("[SLIDESHOW_ALL_PHOTOS]", e);
+    res.status(500).json({ error: e.message });
+  }
+});
 
-// GET /api/slideshow/results-data
-// Récupère toutes les données nécessaires pour l'affichage des résultats
-router.get("/results-data", requireAuth, requireAdmin, async (req, res) => {
+// GET /api/slideshow/results-data - Données des résultats
+router.get("/results-data", async (req, res) => {
   try {
-    // 1. Récupérer les résultats calculés
+    // Vérifier si les résultats sont publiés
+    const { data: settings } = await supabase
+      .from("results")
+      .select("is_published")
+      .limit(1)
+      .maybeSingle();
+
+    if (!settings?.is_published) {
+      return res.json({ published: false });
+    }
+
+    // Récupérer les résultats
     const { data: results } = await supabase
       .from("results")
       .select(
@@ -116,7 +121,7 @@ router.get("/results-data", requireAuth, requireAdmin, async (req, res) => {
         id, rank, average_score, total_score, category_id,
         categories!results_category_id_fkey (id, name),
         submissions!results_submission_id_fkey (
-          id, anonymous_id, display_order,
+          id, anonymous_id,
           photos!submissions_photo_id_fkey (storage_path)
         )
       `,
@@ -124,9 +129,9 @@ router.get("/results-data", requireAuth, requireAdmin, async (req, res) => {
       .order("category_id")
       .order("rank");
 
-    // 2. Récupérer les coups de cœur
+    // Récupérer les coups de cœur
     const { data: favorites } = await supabase.from("favorites").select(`
-        submission_id, category_id, created_at,
+        submission_id,
         submissions!favorites_submission_id_fkey (
           id, anonymous_id,
           categories!submissions_category_id_fkey (name),
@@ -134,7 +139,6 @@ router.get("/results-data", requireAuth, requireAdmin, async (req, res) => {
         )
       `);
 
-    // Compter les coups de cœur par soumission
     const favoriteCounts = {};
     (favorites || []).forEach((fav) => {
       const key = fav.submission_id;
@@ -150,36 +154,29 @@ router.get("/results-data", requireAuth, requireAdmin, async (req, res) => {
       favoriteCounts[key].count++;
     });
 
-    const favoriteList = Object.values(favoriteCounts).sort(
-      (a, b) => b.count - a.count,
-    );
-
-    // Générer les URLs pour les coups de cœur
     const favoritesWithUrls = await Promise.all(
-      favoriteList.map(async (fav) => {
-        let url = null;
-        if (fav.storagePath) {
-          try {
-            const { data: signed } = await supabase.storage
-              .from("photos")
-              .createSignedUrl(fav.storagePath, 3600);
-            url = signed?.signedUrl;
-          } catch (err) {}
-        }
-        return { ...fav, url };
-      }),
+      Object.values(favoriteCounts)
+        .sort((a, b) => b.count - a.count)
+        .map(async (fav) => {
+          let url = null;
+          if (fav.storagePath) {
+            try {
+              const { data: signed } = await supabase.storage
+                .from("photos")
+                .createSignedUrl(fav.storagePath, 3600);
+              url = signed?.signedUrl;
+            } catch (err) {}
+          }
+          return { ...fav, url };
+        }),
     );
 
-    // 3. Classement général des photographes
+    // Classement général
     const userScores = {};
     (results || []).forEach((r) => {
       const key = r.submissions?.anonymous_id || r.submission_id;
       if (!userScores[key]) {
-        userScores[key] = {
-          anonymousId: key,
-          total: 0,
-          rankPosition: null,
-        };
+        userScores[key] = { anonymousId: key, total: 0 };
       }
       userScores[key].total += r.average_score || 0;
     });
@@ -188,37 +185,32 @@ router.get("/results-data", requireAuth, requireAdmin, async (req, res) => {
       .sort((a, b) => b.total - a.total)
       .map((item, idx) => ({ ...item, rank: idx + 1 }));
 
-    // 4. Prix par catégorie (1er de chaque catégorie)
-    const byCategory = {};
+    // Prix par catégorie (vainqueurs)
+    const categoryWinners = [];
+    const seenCategories = new Set();
     (results || []).forEach((r) => {
-      if (r.rank === 1 && !byCategory[r.category_id]) {
-        byCategory[r.category_id] = {
+      if (r.rank === 1 && !seenCategories.has(r.category_id)) {
+        seenCategories.add(r.category_id);
+        let url = null;
+        if (r.submissions?.photos?.storage_path) {
+          supabase.storage
+            .from("photos")
+            .createSignedUrl(r.submissions.photos.storage_path, 3600)
+            .then(({ data }) => {
+              url = data?.signedUrl;
+            })
+            .catch(() => {});
+        }
+        categoryWinners.push({
           categoryId: r.category_id,
           categoryName: r.categories?.name,
-          submissionId: r.submission_id,
           anonymousId: r.submissions?.anonymous_id,
           averageScore: r.average_score,
-          storagePath: r.submissions?.photos?.storage_path,
-        };
+        });
       }
     });
 
-    const categoryWinners = await Promise.all(
-      Object.values(byCategory).map(async (winner) => {
-        let url = null;
-        if (winner.storagePath) {
-          try {
-            const { data: signed } = await supabase.storage
-              .from("photos")
-              .createSignedUrl(winner.storagePath, 3600);
-            url = signed?.signedUrl;
-          } catch (err) {}
-        }
-        return { ...winner, url };
-      }),
-    );
-
-    // 5. Prix de l'œil
+    // Prix de l'œil
     const { data: eyePrize } = await supabase
       .from("eye_prize_selections")
       .select(
@@ -239,7 +231,6 @@ router.get("/results-data", requireAuth, requireAdmin, async (req, res) => {
         .from("photos")
         .createSignedUrl(eyePrize.submissions.photos.storage_path, 3600);
       eyePrizeWithUrl = {
-        submissionId: eyePrize.submission_id,
         anonymousId: eyePrize.submissions.anonymous_id,
         categoryName: eyePrize.submissions.categories?.name,
         url: signed?.signedUrl,
@@ -247,9 +238,10 @@ router.get("/results-data", requireAuth, requireAdmin, async (req, res) => {
     }
 
     res.json({
+      published: true,
       favorites: favoritesWithUrls,
-      categoryWinners: categoryWinners,
-      generalRanking: generalRanking,
+      categoryWinners,
+      generalRanking,
       eyePrize: eyePrizeWithUrl,
     });
   } catch (e) {

@@ -1,18 +1,14 @@
 // frontend/src/pages/DiapoPage.jsx
 import { useState, useEffect, useCallback } from "react";
-import { useAuth } from "../../server/hooks/useAuth.jsx";
 import { api } from "../../server/utils/api.js";
 import { subscribe } from "../../server/utils/realtime.js";
-import SlideshowDisplay from "../components/SlideshowDisplay.jsx";
 
 export default function DiapoPage() {
-  const { user, logout } = useAuth();
   const [mode, setMode] = useState("notation"); // 'notation' | 'gallery' | 'results'
   const [currentPhoto, setCurrentPhoto] = useState(null);
   const [currentCategory, setCurrentCategory] = useState(null);
   const [allPhotos, setAllPhotos] = useState([]);
   const [resultsData, setResultsData] = useState(null);
-  const [isSessionActive, setIsSessionActive] = useState(false);
   const [sessionCompleted, setSessionCompleted] = useState(false);
   const [resultsPublished, setResultsPublished] = useState(false);
   const [resultsStep, setResultsStep] = useState(0);
@@ -20,18 +16,16 @@ export default function DiapoPage() {
   const [rankingRevealIndex, setRankingRevealIndex] = useState(0);
   const [scoresRevealed, setScoresRevealed] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [waitingForSession, setWaitingForSession] = useState(false);
 
-  // ════════════════════════════════════════════════════════════════
   // Vérifier l'état des sessions
-  // ════════════════════════════════════════════════════════════════
   const checkSessionStatus = useCallback(async () => {
     try {
       const sessions = await api.get("/deliberations/active");
       const openSession = sessions?.find((s) => s.status === "open");
 
       if (openSession) {
-        setIsSessionActive(true);
+        setWaitingForSession(false);
         setSessionCompleted(false);
         await loadCurrentPhoto(openSession);
         setMode("notation");
@@ -46,9 +40,10 @@ export default function DiapoPage() {
           setSessionCompleted(true);
           await loadAllPhotos(completedSession.category_id);
           setMode("gallery");
-        } else {
-          setIsSessionActive(false);
+        } else if (!openSession && !completedSession) {
+          setWaitingForSession(true);
           setCurrentPhoto(null);
+          setMode("notation");
         }
       }
     } catch (e) {
@@ -56,9 +51,7 @@ export default function DiapoPage() {
     }
   }, [sessionCompleted]);
 
-  // ════════════════════════════════════════════════════════════════
   // Charger la photo en cours
-  // ════════════════════════════════════════════════════════════════
   const loadCurrentPhoto = async (session) => {
     try {
       const data = await api.get(
@@ -73,103 +66,58 @@ export default function DiapoPage() {
     }
   };
 
-  // ════════════════════════════════════════════════════════════════
   // Charger toutes les photos après notation
-  // ════════════════════════════════════════════════════════════════
   const loadAllPhotos = async (categoryId) => {
     try {
-      const photos = await api.get(`/slideshow/all-photos/${categoryId}`);
-      setAllPhotos(photos.photos || []);
+      const data = await api.get(`/slideshow/all-photos/${categoryId}`);
+      setAllPhotos(data.photos || []);
     } catch (e) {
       console.error("Erreur chargement toutes photos:", e);
     }
   };
 
-  // ════════════════════════════════════════════════════════════════
-  // Charger les données des résultats
-  // ════════════════════════════════════════════════════════════════
+  // Charger les résultats
   const loadResultsData = useCallback(async () => {
     try {
-      const status = await api.get("/results/status");
-      setResultsPublished(status.isPublished);
-
-      if (status.isPublished) {
-        const data = await api.get("/slideshow/results-data");
+      const data = await api.get("/slideshow/results-data");
+      if (data.published) {
+        setResultsPublished(true);
         setResultsData(data);
         setResultsStep(0);
         setCurrentRevealIndex(0);
         setRankingRevealIndex(0);
         setScoresRevealed(false);
         setMode("results");
+        setLoading(false);
+      } else {
+        setResultsPublished(false);
+        setLoading(false);
       }
     } catch (e) {
       console.error("Erreur chargement résultats:", e);
-    } finally {
       setLoading(false);
     }
   }, []);
 
-  // ════════════════════════════════════════════════════════════════
-  // Écouter les changements en temps réel
-  // ════════════════════════════════════════════════════════════════
-  useEffect(() => {
-    // Chargement initial
-    checkSessionStatus();
-    loadResultsData();
-
-    // Écouter les changements de session
-    const unsubSessions = subscribe("deliberation_sessions", "*", async () => {
-      await checkSessionStatus();
-    });
-
-    // Écouter les changements de résultats
-    const unsubResults = subscribe("results", "*", async () => {
-      await loadResultsData();
-    });
-
-    return () => {
-      unsubSessions();
-      unsubResults();
-    };
-  }, [checkSessionStatus, loadResultsData]);
-
-  // Auto-avancement des résultats
-  useEffect(() => {
-    if (mode !== "results" || !resultsData) return;
-
-    // Timer pour avancer automatiquement toutes les 5 secondes
-    const timer = setTimeout(() => {
-      nextResultStep();
-    }, 5000);
-
-    return () => clearTimeout(timer);
-  }, [mode, resultsData, resultsStep, currentRevealIndex, rankingRevealIndex]);
-
-  // ════════════════════════════════════════════════════════════════
-  // Navigation dans les résultats
-  // ════════════════════════════════════════════════════════════════
-  const nextResultStep = () => {
+  // Navigation dans les résultats (auto-avancement)
+  const nextResultStep = useCallback(() => {
     if (resultsStep === 0) {
-      // Coups de cœur
-      if (currentRevealIndex < (resultsData?.favorites?.length || 0) - 1) {
+      const favorites = resultsData?.favorites || [];
+      if (currentRevealIndex < favorites.length - 1) {
         setCurrentRevealIndex((prev) => prev + 1);
       } else {
         setResultsStep(1);
         setCurrentRevealIndex(0);
       }
     } else if (resultsStep === 1) {
-      // Prix par catégorie
-      if (
-        currentRevealIndex <
-        (resultsData?.categoryWinners?.length || 0) - 1
-      ) {
+      const winners = resultsData?.categoryWinners || [];
+      if (currentRevealIndex < winners.length - 1) {
         setCurrentRevealIndex((prev) => prev + 1);
       } else {
         setResultsStep(2);
         setCurrentRevealIndex(0);
       }
     } else if (resultsStep === 2) {
-      // Classement - révéler de la fin vers le début
       const ranking = resultsData?.generalRanking || [];
       if (rankingRevealIndex < ranking.length - 1) {
         setRankingRevealIndex((prev) => prev + 1);
@@ -177,18 +125,45 @@ export default function DiapoPage() {
         setResultsStep(3);
       }
     } else if (resultsStep === 3) {
-      // Révéler les scores
       setScoresRevealed(true);
       setResultsStep(4);
     } else if (resultsStep === 4) {
-      // Prix de l'œil
       setResultsStep(5);
     }
-  };
+  }, [resultsStep, currentRevealIndex, rankingRevealIndex, resultsData]);
 
-  // ════════════════════════════════════════════════════════════════
-  // RENDU
-  // ════════════════════════════════════════════════════════════════
+  // Auto-avancement des résultats
+  useEffect(() => {
+    if (mode !== "results" || !resultsData) return;
+    const timer = setTimeout(nextResultStep, 8000);
+    return () => clearTimeout(timer);
+  }, [
+    mode,
+    resultsData,
+    resultsStep,
+    currentRevealIndex,
+    rankingRevealIndex,
+    nextResultStep,
+  ]);
+
+  // Écouter les changements
+  useEffect(() => {
+    checkSessionStatus();
+    loadResultsData();
+
+    const unsubSessions = subscribe("deliberation_sessions", "*", () => {
+      checkSessionStatus();
+    });
+
+    const unsubResults = subscribe("results", "*", () => {
+      loadResultsData();
+    });
+
+    return () => {
+      unsubSessions();
+      unsubResults();
+    };
+  }, [checkSessionStatus, loadResultsData]);
 
   if (loading) {
     return (
@@ -200,7 +175,7 @@ export default function DiapoPage() {
   }
 
   // Mode notation - photo en cours
-  if (mode === "notation" && currentPhoto) {
+  if (mode === "notation" && currentPhoto && !waitingForSession) {
     return (
       <div className="diapo-container">
         <div className="diapo-photo">
@@ -214,7 +189,7 @@ export default function DiapoPage() {
     );
   }
 
-  // Mode galerie - toutes les photos après notation
+  // Mode galerie - toutes les photos
   if (mode === "gallery" && allPhotos.length > 0) {
     return (
       <div className="diapo-container diapo-gallery">
@@ -240,7 +215,6 @@ export default function DiapoPage() {
 
     return (
       <div className="diapo-container diapo-results">
-        {/* Étape 0: Coups de cœur */}
         {resultsStep === 0 && (
           <div className="results-step">
             <h1 className="results-title">❤️ COUPS DE CŒUR DU JURY</h1>
@@ -248,7 +222,7 @@ export default function DiapoPage() {
               {(resultsData.favorites || [])
                 .slice(0, currentRevealIndex + 1)
                 .map((fav, idx) => (
-                  <div key={fav.submissionId} className="favorite-card">
+                  <div key={fav.submissionId} className="favorite-card fade-in">
                     {fav.url && <img src={fav.url} alt="" />}
                     <div className="favorite-count">{fav.count} ❤️</div>
                   </div>
@@ -257,7 +231,6 @@ export default function DiapoPage() {
           </div>
         )}
 
-        {/* Étape 1: Prix par catégorie */}
         {resultsStep === 1 && (
           <div className="results-step">
             <h1 className="results-title">🏆 PRIX PAR CATÉGORIE</h1>
@@ -265,7 +238,10 @@ export default function DiapoPage() {
               {(resultsData.categoryWinners || [])
                 .slice(0, currentRevealIndex + 1)
                 .map((winner, idx) => (
-                  <div key={winner.categoryId} className="category-card">
+                  <div
+                    key={winner.categoryId}
+                    className="category-card fade-in"
+                  >
                     <div className="category-name">{winner.categoryName}</div>
                     {winner.url && <img src={winner.url} alt="" />}
                   </div>
@@ -274,7 +250,6 @@ export default function DiapoPage() {
           </div>
         )}
 
-        {/* Étape 2: Classement (sans scores) */}
         {resultsStep === 2 && (
           <div className="results-step">
             <h1 className="results-title">📊 CLASSEMENT GÉNÉRAL</h1>
@@ -282,32 +257,27 @@ export default function DiapoPage() {
               {revealedRanking
                 .slice()
                 .reverse()
-                .map((item, idx) => {
-                  const isTop3 =
-                    item.rank === 1 || item.rank === 2 || item.rank === 3;
-                  return (
-                    <div
-                      key={item.anonymousId}
-                      className={`ranking-card ${isTop3 ? `rank-${item.rank}` : ""}`}
-                    >
-                      <div className="ranking-position">
-                        {item.rank === 1 && "🥇"}
-                        {item.rank === 2 && "🥈"}
-                        {item.rank === 3 && "🥉"}
-                        {item.rank > 3 && `${item.rank}e`}
-                      </div>
-                      <div className="ranking-name">{item.anonymousId}</div>
-                      {!scoresRevealed && (
-                        <div className="ranking-placeholder">??? pts</div>
-                      )}
+                .map((item, idx) => (
+                  <div
+                    key={item.anonymousId}
+                    className={`ranking-card rank-${item.rank}`}
+                  >
+                    <div className="ranking-position">
+                      {item.rank === 1 && "🥇"}
+                      {item.rank === 2 && "🥈"}
+                      {item.rank === 3 && "🥉"}
+                      {item.rank > 3 && `${item.rank}e`}
                     </div>
-                  );
-                })}
+                    <div className="ranking-name">{item.anonymousId}</div>
+                    {!scoresRevealed && (
+                      <div className="ranking-placeholder">??? pts</div>
+                    )}
+                  </div>
+                ))}
             </div>
           </div>
         )}
 
-        {/* Étape 3: Scores révélés */}
         {resultsStep === 3 && (
           <div className="results-step">
             <h1 className="results-title">📊 CLASSEMENT GÉNÉRAL</h1>
@@ -315,7 +285,7 @@ export default function DiapoPage() {
               {ranking.map((item, idx) => (
                 <div
                   key={item.anonymousId}
-                  className={`ranking-card rank-${item.rank === 1 ? "1" : item.rank === 2 ? "2" : item.rank === 3 ? "3" : ""}`}
+                  className={`ranking-card rank-${item.rank}`}
                 >
                   <div className="ranking-position">
                     {item.rank === 1 && "🥇"}
@@ -333,12 +303,11 @@ export default function DiapoPage() {
           </div>
         )}
 
-        {/* Étape 4: Prix de l'œil */}
         {resultsStep === 4 && resultsData.eyePrize && (
           <div className="results-step">
             <h1 className="results-title">👁️ PRIX DE L'ŒIL</h1>
             <div className="results-eyeprize">
-              <div className="eyeprize-card">
+              <div className="eyeprize-card fade-in">
                 {resultsData.eyePrize.url && (
                   <img src={resultsData.eyePrize.url} alt="" />
                 )}
@@ -353,12 +322,9 @@ export default function DiapoPage() {
           </div>
         )}
 
-        {/* Étape 5: Fin */}
         {resultsStep === 5 && (
           <div className="results-step">
-            <h1 className="results-title">
-              🏆 FÉLICITATIONS À TOUS LES PARTICIPANTS ! 🏆
-            </h1>
+            <h1 className="results-title">🏆 FÉLICITATIONS ! 🏆</h1>
             <div className="results-end">
               <div className="end-icon">🎉</div>
               <p>Merci pour votre participation</p>
@@ -369,7 +335,7 @@ export default function DiapoPage() {
     );
   }
 
-  // Aucune session active
+  // En attente d'une session
   return (
     <div className="diapo-container diapo-waiting">
       <div className="diapo-waiting-content">

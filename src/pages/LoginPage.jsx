@@ -23,6 +23,7 @@ const ROLE_REDIRECT = {
   admin: "/admin",
   juror: "/jury",
   participant: "/participant",
+  diapo: "/diapo",
 };
 
 export default function AuthPage() {

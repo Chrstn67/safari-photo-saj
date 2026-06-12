@@ -96,7 +96,7 @@ export default function App() {
           <Route
             path="/diapo"
             element={
-              <ProtectedRoute roles={["juror"]}>
+              <ProtectedRoute roles={["diapo"]}>
                 <DiapoPage />
               </ProtectedRoute>
             }
