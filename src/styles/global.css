@@ -1597,3 +1597,245 @@ table {
   font-size: 1.1rem;
   font-weight: bold;
 }
+/* frontend/src/styles/global.css - Ajouts pour DiapoPage */
+
+/* Bouton déconnexion pour le mode diaporama */
+.diapo-logout {
+  position: fixed;
+  bottom: 1rem;
+  left: 1rem;
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  color: #fff;
+  padding: 0.5rem 1rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  z-index: 1001;
+  font-weight: 500;
+}
+
+.diapo-logout:hover {
+  background: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+/* Contrôles du mode résultats */
+.diapo-results-controls {
+  position: fixed;
+  bottom: 1rem;
+  right: 1rem;
+  display: flex;
+  gap: 0.75rem;
+  z-index: 1001;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(10px);
+  padding: 0.75rem 1rem;
+  border-radius: 50px;
+  border: 1px solid rgba(255, 215, 0, 0.3);
+}
+
+.diapo-results-controls .control-btn {
+  background: rgba(255, 255, 255, 0.15);
+  border: none;
+  border-radius: 8px;
+  color: #ffd700;
+  padding: 0.5rem 1rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.diapo-results-controls .control-btn:hover {
+  background: rgba(255, 215, 0, 0.3);
+  color: #fff;
+  transform: scale(1.02);
+}
+
+.diapo-controls-hint {
+  position: fixed;
+  bottom: 1rem;
+  right: 1rem;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(5px);
+  padding: 0.3rem 0.8rem;
+  border-radius: 20px;
+  font-size: 0.65rem;
+  color: rgba(255, 255, 255, 0.5);
+  font-family: monospace;
+  z-index: 1000;
+  pointer-events: none;
+}
+
+/* Header de la galerie avec bouton déconnexion */
+.diapo-gallery-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 2rem;
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.5), transparent);
+  z-index: 10;
+}
+
+.diapo-gallery-header .diapo-title {
+  margin: 0;
+  color: #fff;
+  font-size: 1.2rem;
+}
+
+.diapo-gallery-header .diapo-logout {
+  position: relative;
+  bottom: auto;
+  left: auto;
+}
+
+/* Ajustements pour les cartes de résultats */
+.results-favorites,
+.results-categories {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 2rem;
+  width: 100%;
+  max-width: 1200px;
+  padding: 1rem;
+}
+
+.favorite-card,
+.category-card {
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(10px);
+  border-radius: 20px;
+  overflow: hidden;
+  text-align: center;
+  padding: 1.5rem;
+  transition: transform 0.3s ease;
+}
+
+.favorite-card:hover,
+.category-card:hover {
+  transform: scale(1.02);
+}
+
+.favorite-card img,
+.category-card img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 12px;
+}
+
+.favorite-count {
+  margin-top: 1rem;
+  font-size: 1.8rem;
+  font-weight: bold;
+  color: #ff6b6b;
+}
+
+.category-name {
+  font-size: 1.2rem;
+  font-weight: bold;
+  color: #ffd700;
+  margin-bottom: 1rem;
+}
+
+.winner-id {
+  margin-top: 0.75rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #fff;
+  font-family: monospace;
+}
+
+.winner-score {
+  margin-top: 0.5rem;
+  font-size: 1.1rem;
+  font-weight: bold;
+  color: #ffd700;
+}
+
+/* Animation fade-in améliorée */
+.fade-in {
+  animation: fadeInUp 0.5s ease forwards;
+  opacity: 0;
+  transform: translateY(20px);
+}
+
+@keyframes fadeInUp {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Écran de fin */
+.results-end {
+  text-align: center;
+  animation: fadeInUp 0.8s ease forwards;
+}
+
+.results-end .end-icon {
+  font-size: 5rem;
+  margin-bottom: 1rem;
+  animation: bounce 1s ease infinite;
+}
+
+@keyframes bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+.results-end p {
+  font-size: 1.2rem;
+  color: #fff;
+  margin-top: 1rem;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .results-favorites,
+  .results-categories {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .ranking-card {
+    padding: 0.5rem 1rem;
+  }
+
+  .ranking-position {
+    font-size: 1.2rem;
+    min-width: 45px;
+  }
+
+  .ranking-name {
+    font-size: 0.85rem;
+  }
+
+  .diapo-results-controls {
+    padding: 0.5rem 0.75rem;
+  }
+
+  .diapo-results-controls .control-btn {
+    padding: 0.3rem 0.7rem;
+    font-size: 0.8rem;
+  }
+
+  .diapo-controls-hint {
+    font-size: 0.55rem;
+    right: 0.5rem;
+    bottom: 0.5rem;
+  }
+}
