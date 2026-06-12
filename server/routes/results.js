@@ -615,7 +615,7 @@ router.post("/eye-prize/vote", requireAuth, requireJuror, async (req, res) => {
       });
     }
 
-    // Mettre à jour les compteurs
+    // Mettre à jour les compteurs via upsert (évite les violations de contrainte UNIQUE)
     const { data: allVotes } = await supabase
       .from("eye_prize_votes")
       .select("submission_id");
@@ -624,17 +624,33 @@ router.post("/eye-prize/vote", requireAuth, requireJuror, async (req, res) => {
       counts[v.submission_id] = (counts[v.submission_id] || 0) + 1;
     });
 
-    await supabase
-      .from("eye_prize_result")
-      .delete()
-      .neq("id", "00000000-0000-0000-0000-000000000000");
-
     for (const [subId, count] of Object.entries(counts)) {
-      await supabase.from("eye_prize_result").insert({
-        submission_id: subId,
-        total_votes: count,
-        is_finalized: false,
-      });
+      await supabase.from("eye_prize_result").upsert(
+        {
+          submission_id: subId,
+          total_votes: count,
+          is_finalized: false,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "submission_id", ignoreDuplicates: false },
+      );
+    }
+
+    // Supprimer les entrées pour les soumissions qui n'ont plus de vote
+    const { data: existingResults } = await supabase
+      .from("eye_prize_result")
+      .select("submission_id")
+      .eq("is_finalized", false);
+    const activeSubIds = Object.keys(counts);
+    const toDelete = (existingResults || [])
+      .map((r) => r.submission_id)
+      .filter((id) => !activeSubIds.includes(id));
+    if (toDelete.length > 0) {
+      await supabase
+        .from("eye_prize_result")
+        .delete()
+        .in("submission_id", toDelete)
+        .eq("is_finalized", false);
     }
 
     await log(req.user.id, "EYE_PRIZE_VOTE", "eye_prize_votes", submissionId);
@@ -724,15 +740,22 @@ router.post(
     try {
       const { data: votes } = await supabase
         .from("eye_prize_votes")
-        .select("submission_id");
+        .select("submission_id, juror_id");
 
       if (!votes || votes.length === 0) {
         return res.status(400).json({ error: "Aucun vote n'a été enregistré" });
       }
 
-      const counts = {};
+      // Vérifier qu'il n'y a qu'un vote par juré (dédoublonnage défensif)
+      const uniqueVotesByJuror = {};
       votes.forEach((v) => {
-        counts[v.submission_id] = (counts[v.submission_id] || 0) + 1;
+        uniqueVotesByJuror[v.juror_id] = v.submission_id;
+      });
+      const dedupedVotes = Object.values(uniqueVotesByJuror);
+
+      const counts = {};
+      dedupedVotes.forEach((submissionId) => {
+        counts[submissionId] = (counts[submissionId] || 0) + 1;
       });
 
       let maxVotes = 0;
@@ -763,10 +786,14 @@ router.post(
           .json({ error: "Impossible de déterminer le gagnant" });
       }
 
+      // Supprimer toutes les entrées non finalisées et insérer le gagnant
       await supabase
         .from("eye_prize_result")
         .delete()
-        .neq("id", "00000000-0000-0000-0000-000000000000");
+        .eq("is_finalized", false);
+
+      // Supprimer également tout résultat finalisé précédent
+      await supabase.from("eye_prize_result").delete().eq("is_finalized", true);
 
       const { data: result, error } = await supabase
         .from("eye_prize_result")
@@ -1029,17 +1056,22 @@ router.post(
         counts[v.submission_id] = (counts[v.submission_id] || 0) + 1;
       });
 
+      // Supprimer les résultats non finalisés et reconstruire via upsert
       await supabase
         .from("eye_prize_result")
         .delete()
-        .neq("id", "00000000-0000-0000-0000-000000000000");
+        .eq("is_finalized", false);
 
       for (const [subId, count] of Object.entries(counts)) {
-        await supabase.from("eye_prize_result").insert({
-          submission_id: subId,
-          total_votes: count,
-          is_finalized: false,
-        });
+        await supabase.from("eye_prize_result").upsert(
+          {
+            submission_id: subId,
+            total_votes: count,
+            is_finalized: false,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "submission_id", ignoreDuplicates: false },
+        );
       }
 
       await log(
