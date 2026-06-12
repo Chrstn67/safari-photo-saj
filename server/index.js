@@ -1,4 +1,4 @@
-// backend/index.js
+// server/index.js
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -28,6 +28,7 @@ app.use(
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true }));
 
+// ROUTES - Vérifiez que chaque route est bien enregistrée
 app.use("/api/auth", authRoutes);
 app.use("/api/photos", photosRoutes);
 app.use("/api/categories", categoriesRoutes);
@@ -37,6 +38,27 @@ app.use("/api/scores", scoresRoutes);
 app.use("/api/results", resultsRoutes);
 app.use("/api/slideshow", slideshowRoutes);
 app.use("/api/admin", adminRoutes);
+
+// Route de debug pour voir toutes les routes enregistrées
+app.get("/api/routes", (_req, res) => {
+  const routes = [];
+  app._router.stack.forEach((middleware) => {
+    if (middleware.route) {
+      routes.push(
+        `${Object.keys(middleware.route.methods)} ${middleware.route.path}`,
+      );
+    } else if (middleware.name === "router") {
+      middleware.handle.stack.forEach((handler) => {
+        if (handler.route) {
+          routes.push(
+            `${Object.keys(handler.route.methods)} ${handler.route.path}`,
+          );
+        }
+      });
+    }
+  });
+  res.json({ routes });
+});
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, ts: new Date().toISOString() });
@@ -51,8 +73,7 @@ app.get("/api/debug-env", (_req, res) => {
   });
 });
 
-// ✅ IMPORTANT: Pour Vercel, il faut exporter l'app et un handler
-export default app; // ← Changement clé : exporter app directement
-
-// Pour les environnements serverless Vercel
-export const handler = app;
+// Pour Vercel serverless
+export default function handler(req, res) {
+  app(req, res);
+}

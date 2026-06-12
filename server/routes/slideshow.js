@@ -1,19 +1,22 @@
-// backend/routes/slideshow.js
+// server/routes/slideshow.js
 import express from "express";
 import supabase from "../utils/supabase.js";
 import { requireAuth, requireDiapo } from "../middleware/auth.js";
 
 const router = express.Router();
 
-// ⚠️ TOUTES les routes slideshow sont protégées par le rôle "diapo"
-// Pour que l'écran public fonctionne, il faut créer un utilisateur avec role_id=4
-// ET que cet utilisateur soit connecté pour afficher le diaporama.
+// LOG pour vérifier que le routeur est bien chargé
+console.log("[SLIDESHOW] Router loaded");
 
 // GET /api/slideshow/status
 router.get("/status", requireAuth, requireDiapo, async (req, res) => {
-  try {
-    console.log("[SLIDESHOW_STATUS] Called by user:", req.user?.id);
+  console.log(
+    "[SLIDESHOW_STATUS] Called - headers:",
+    req.headers.authorization?.slice(0, 50) + "...",
+  );
+  console.log("[SLIDESHOW_STATUS] User:", req.user?.id, req.user?.role);
 
+  try {
     // Vérifier s'il y a une session ouverte
     const { data: openSession, error: openError } = await supabase
       .from("deliberation_sessions")
@@ -50,13 +53,7 @@ router.get("/status", requireAuth, requireDiapo, async (req, res) => {
       console.error("[SLIDESHOW_STATUS] resultsStatus error:", resultsError);
     }
 
-    console.log("[SLIDESHOW_STATUS] Response:", {
-      hasOpenSession: !!openSession,
-      hasCompletedSession: !!completedSession,
-      resultsPublished: resultsStatus?.is_published || false,
-    });
-
-    res.json({
+    const response = {
       hasOpenSession: !!openSession,
       openSession: openSession
         ? {
@@ -68,7 +65,10 @@ router.get("/status", requireAuth, requireDiapo, async (req, res) => {
         : null,
       hasCompletedSession: !!completedSession,
       resultsPublished: resultsStatus?.is_published || false,
-    });
+    };
+
+    console.log("[SLIDESHOW_STATUS] Response:", response);
+    res.json(response);
   } catch (e) {
     console.error("[SLIDESHOW_STATUS] Exception:", e);
     res.status(500).json({ error: e.message });
@@ -77,9 +77,9 @@ router.get("/status", requireAuth, requireDiapo, async (req, res) => {
 
 // GET /api/slideshow/current
 router.get("/current", requireAuth, requireDiapo, async (req, res) => {
-  try {
-    console.log("[SLIDESHOW_CURRENT] Called by user:", req.user?.id);
+  console.log("[SLIDESHOW_CURRENT] Called");
 
+  try {
     const { data: openSession, error: sessionError } = await supabase
       .from("deliberation_sessions")
       .select(
@@ -105,6 +105,13 @@ router.get("/current", requireAuth, requireDiapo, async (req, res) => {
       console.error("[SLIDESHOW_CURRENT] session error:", sessionError);
       return res.status(500).json({ error: sessionError.message });
     }
+
+    console.log(
+      "[SLIDESHOW_CURRENT] openSession:",
+      openSession?.id,
+      "status:",
+      openSession?.status,
+    );
 
     if (
       !openSession ||
@@ -225,6 +232,8 @@ router.get(
 
 // GET /api/slideshow/results-data
 router.get("/results-data", requireAuth, requireDiapo, async (req, res) => {
+  console.log("[SLIDESHOW_RESULTS_DATA] Called");
+
   try {
     const { data: settings } = await supabase
       .from("results")
@@ -327,7 +336,7 @@ router.get("/results-data", requireAuth, requireDiapo, async (req, res) => {
       eyePrize: eyePrizeWithUrl,
     });
   } catch (e) {
-    console.error("[SLIDESHOW_RESULTS]", e);
+    console.error("[SLIDESHOW_RESULTS_DATA]", e);
     res.status(500).json({ error: e.message });
   }
 });

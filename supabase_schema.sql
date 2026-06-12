@@ -157,6 +157,6 @@ CREATE TABLE public.eye_prize_selections (
   selected_by uuid,
   selected_at timestamp with time zone DEFAULT now(),
   CONSTRAINT eye_prize_selections_pkey PRIMARY KEY (id),
-  CONSTRAINT eye_prize_selections_submission_id_fkey FOREIGN KEY (submission_id) REFERENCES public.submissions(id),
-  CONSTRAINT eye_prize_selections_selected_by_fkey FOREIGN KEY (selected_by) REFERENCES public.users(id)
+  CONSTRAINT eye_prize_selections_selected_by_fkey FOREIGN KEY (selected_by) REFERENCES public.users(id),
+  CONSTRAINT eye_prize_selections_submission_id_fkey FOREIGN KEY (submission_id) REFERENCES public.submissions(id)
 );
