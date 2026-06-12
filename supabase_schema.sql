@@ -188,3 +188,15 @@ CREATE TABLE public.eye_prize_result (
   CONSTRAINT eye_prize_result_submission_id_fkey FOREIGN KEY (submission_id) REFERENCES public.submissions(id),
   CONSTRAINT eye_prize_result_finalized_by_fkey FOREIGN KEY (finalized_by) REFERENCES public.users(id)
 );
+CREATE TABLE public.eye_prize_state (
+  id integer NOT NULL DEFAULT 1 CHECK (id = 1),
+  has_tie boolean DEFAULT false,
+  resolved_at timestamp with time zone,
+  resolved_by uuid,
+  winning_submission_id uuid,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT eye_prize_state_pkey PRIMARY KEY (id),
+  CONSTRAINT eye_prize_state_resolved_by_fkey FOREIGN KEY (resolved_by) REFERENCES public.users(id),
+  CONSTRAINT eye_prize_state_winning_submission_id_fkey FOREIGN KEY (winning_submission_id) REFERENCES public.submissions(id)
+);

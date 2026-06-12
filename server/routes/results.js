@@ -434,6 +434,7 @@ router.get("/palmares", requireAuth, async (req, res) => {
     // PRIX DE L'ŒIL
     // ════════════════════════════════════════════════════════════════
 
+    // Récupérer toutes les soumissions pour les votes
     const { data: allSubmissions } = await supabase.from("submissions").select(`
         id, anonymous_id, category_id,
         categories!submissions_category_id_fkey (name),
@@ -461,10 +462,12 @@ router.get("/palmares", requireAuth, async (req, res) => {
       }),
     );
 
+    // Récupérer les votes
     const { data: eyePrizeVotes } = await supabase
       .from("eye_prize_votes")
       .select("id, juror_id, submission_id, voted_at");
 
+    // Compter les votes par photo
     const voteCountsMap = new Map();
     (eyePrizeVotes || []).forEach((vote) => {
       const sub = submissionsWithUrls.find((s) => s.id === vote.submission_id);
@@ -487,6 +490,7 @@ router.get("/palmares", requireAuth, async (req, res) => {
       (a, b) => b.votes - a.votes,
     );
 
+    // Vérifier l'égalité
     let hasTie = false;
     let tiedPhotos = [];
     if (
@@ -499,6 +503,7 @@ router.get("/palmares", requireAuth, async (req, res) => {
       tiedPhotos = voteCounts.filter((v) => v.votes === topVoteCount);
     }
 
+    // Récupérer le résultat finalisé
     const { data: finalResult } = await supabase
       .from("eye_prize_result")
       .select(
@@ -642,6 +647,7 @@ router.post("/eye-prize/vote", requireAuth, requireJuror, async (req, res) => {
     return res.status(400).json({ error: "submissionId requis" });
 
   try {
+    // Vérifier si le prix est déjà finalisé
     const { data: existingResult } = await supabase
       .from("eye_prize_result")
       .select("is_finalized")
@@ -665,6 +671,7 @@ router.post("/eye-prize/vote", requireAuth, requireJuror, async (req, res) => {
     if (!submission)
       return res.status(404).json({ error: "Photo introuvable" });
 
+    // Upsert le vote
     const { data: existingVote } = await supabase
       .from("eye_prize_votes")
       .select("id")
@@ -689,15 +696,17 @@ router.post("/eye-prize/vote", requireAuth, requireJuror, async (req, res) => {
       });
     }
 
-    // Mettre à jour les compteurs
+    // Mettre à jour les compteurs dans eye_prize_result
     const { data: allVotes } = await supabase
       .from("eye_prize_votes")
       .select("submission_id");
+
     const counts = {};
     (allVotes || []).forEach((v) => {
       counts[v.submission_id] = (counts[v.submission_id] || 0) + 1;
     });
 
+    // Supprimer les anciens résultats et recréer
     await supabase
       .from("eye_prize_result")
       .delete()
@@ -733,17 +742,14 @@ router.post(
         .from("eye_prize_votes")
         .delete()
         .neq("id", "00000000-0000-0000-0000-000000000000");
-
       await supabase
         .from("eye_prize_result")
         .delete()
         .neq("id", "00000000-0000-0000-0000-000000000000");
-
       await supabase
         .from("eye_prize_state")
         .delete()
         .neq("id", "00000000-0000-0000-0000-000000000000");
-
       await log(req.user.id, "EYE_PRIZE_RESET_ALL", "eye_prize_votes", null);
       res.json({
         success: true,
@@ -915,12 +921,17 @@ router.get(
   },
 );
 
+// ════════════════════════════════════════════════════════════════
+// FINALISATION - ROUTE CORRECTE
+// ════════════════════════════════════════════════════════════════
+
 router.post(
   "/eye-prize/finalize",
   requireAuth,
   requireAdmin,
   async (req, res) => {
     try {
+      // Récupérer tous les votes
       const { data: votes } = await supabase
         .from("eye_prize_votes")
         .select("submission_id");
@@ -929,11 +940,13 @@ router.post(
         return res.status(400).json({ error: "Aucun vote n'a été enregistré" });
       }
 
+      // Compter les votes par soumission
       const counts = {};
       votes.forEach((v) => {
         counts[v.submission_id] = (counts[v.submission_id] || 0) + 1;
       });
 
+      // Trouver le(s) gagnant(s)
       let maxVotes = 0;
       let winner = null;
       let tiedSubmissions = [];
@@ -948,6 +961,7 @@ router.post(
         }
       }
 
+      // Vérifier s'il y a égalité
       if (tiedSubmissions.length > 1) {
         return res.status(409).json({
           error: "Égalité détectée",
@@ -962,26 +976,54 @@ router.post(
           .json({ error: "Impossible de déterminer le gagnant" });
       }
 
+      // Supprimer l'ancien résultat
       await supabase
         .from("eye_prize_result")
         .delete()
         .neq("id", "00000000-0000-0000-0000-000000000000");
-      await supabase.from("eye_prize_result").insert({
-        submission_id: winner,
-        total_votes: counts[winner],
-        is_finalized: true,
-        finalized_at: new Date().toISOString(),
-        finalized_by: req.user.id,
+
+      // Créer le nouveau résultat finalisé
+      const { data: result, error } = await supabase
+        .from("eye_prize_result")
+        .insert({
+          submission_id: winner,
+          total_votes: counts[winner],
+          is_finalized: true,
+          finalized_at: new Date().toISOString(),
+          finalized_by: req.user.id,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Mettre à jour l'état
+      await supabase.from("eye_prize_state").upsert({
+        id: 1,
+        has_tie: false,
+        resolved_at: new Date().toISOString(),
+        resolved_by: req.user.id,
+        winning_submission_id: winner,
       });
 
       await log(req.user.id, "EYE_PRIZE_FINALIZED", "eye_prize_result", winner);
-      res.json({ success: true, winner: winner, totalVotes: counts[winner] });
+
+      res.json({
+        success: true,
+        winner: winner,
+        totalVotes: counts[winner],
+        message: `✅ Prix de l'œil finalisé avec ${counts[winner]} vote(s)`,
+      });
     } catch (e) {
       console.error("[eye-prize/finalize] Erreur:", e);
       res.status(500).json({ error: e.message });
     }
   },
 );
+
+// ════════════════════════════════════════════════════════════════
+// RÉSOLUTION D'ÉGALITÉ
+// ════════════════════════════════════════════════════════════════
 
 router.post(
   "/eye-prize/resolve-tie",
@@ -993,9 +1035,11 @@ router.post(
       return res.status(400).json({ error: "winningSubmissionId requis" });
 
     try {
+      // Vérifier que la photo est bien parmi les ex-aequo
       const { data: votes } = await supabase
         .from("eye_prize_votes")
         .select("submission_id");
+
       const counts = {};
       (votes || []).forEach((v) => {
         counts[v.submission_id] = (counts[v.submission_id] || 0) + 1;
@@ -1012,10 +1056,13 @@ router.post(
           .json({ error: "Cette photo n'est pas parmi les ex-aequo" });
       }
 
+      // Supprimer l'ancien résultat
       await supabase
         .from("eye_prize_result")
         .delete()
         .neq("id", "00000000-0000-0000-0000-000000000000");
+
+      // Créer le nouveau résultat avec la gagnante choisie
       await supabase.from("eye_prize_result").insert({
         submission_id: winningSubmissionId,
         total_votes: counts[winningSubmissionId],
@@ -1024,12 +1071,22 @@ router.post(
         finalized_by: req.user.id,
       });
 
+      // Mettre à jour l'état
+      await supabase.from("eye_prize_state").upsert({
+        id: 1,
+        has_tie: false,
+        resolved_at: new Date().toISOString(),
+        resolved_by: req.user.id,
+        winning_submission_id: winningSubmissionId,
+      });
+
       await log(
         req.user.id,
         "EYE_PRIZE_TIE_RESOLVED",
         "eye_prize_result",
         winningSubmissionId,
       );
+
       res.json({
         success: true,
         message: "Égalité résolue - Prix de l'œil finalisé !",

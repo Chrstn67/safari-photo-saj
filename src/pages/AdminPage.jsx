@@ -1324,11 +1324,25 @@ function AdminResultsTab({ showFlash, user }) {
   // CORRECTION: Utiliser la bonne route eye-prize/finalize
   const handleSelectEyePrize = async (submissionId) => {
     try {
+      // Utiliser la route finale de résolution d'égalité ou finalisation directe
       await api.post("/results/eye-prize/finalize", { submissionId });
       showFlash("✅ Prix de l'œil attribué !");
       await loadData();
     } catch (e) {
-      showFlash("❌ " + e.message);
+      if (e.message.includes("Égalité") || e.status === 409) {
+        // En cas d'égalité, utiliser resolve-tie
+        try {
+          await api.post("/results/eye-prize/resolve-tie", {
+            winningSubmissionId: submissionId,
+          });
+          showFlash("✅ Égalité résolue - Prix de l'œil attribué !");
+          await loadData();
+        } catch (err) {
+          showFlash("❌ " + err.message);
+        }
+      } else {
+        showFlash("❌ " + e.message);
+      }
     }
   };
 
