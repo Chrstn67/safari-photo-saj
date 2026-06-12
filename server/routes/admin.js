@@ -28,16 +28,21 @@ router.use(requireAuth, requireAdmin);
 
 /* GET /api/admin/users */
 router.get("/users", async (_req, res) => {
-  const { data, error } = await supabase
-    .from("users")
-    .select(
-      "id, first_name, last_name, role_id, is_active, created_at, roles(name)",
-    )
-    .order("role_id")
-    .order("last_name");
+  try {
+    const { data, error } = await supabase
+      .from("users")
+      .select(
+        "id, first_name, last_name, role_id, is_active, created_at, roles(name)",
+      )
+      .order("role_id")
+      .order("last_name");
 
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+    if (error) throw error;
+    res.json(data);
+  } catch (error) {
+    console.error("[GET /users] Error:", error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 /* POST /api/admin/users */
@@ -48,33 +53,36 @@ router.post("/users", async (req, res) => {
     return res.status(400).json({ error: "Tous les champs sont requis" });
   }
   if (![1, 2, 3].includes(parseInt(roleId))) {
-    return res
-      .status(400)
-      .json({ error: "Rôle invalide (1=participant, 2=juré, 3=admin)" });
+    return res.status(400).json({ error: "Rôle invalide (1,2,3)" });
   }
 
-  const passwordHash = await bcrypt.hash(password, 12);
-  const { data, error } = await supabase
-    .from("users")
-    .insert({
-      first_name: firstName.trim(),
-      last_name: lastName.trim(),
-      password_hash: passwordHash,
-      role_id: parseInt(roleId),
-    })
-    .select("id, first_name, last_name, role_id")
-    .single();
+  try {
+    const passwordHash = await bcrypt.hash(password, 12);
+    const { data, error } = await supabase
+      .from("users")
+      .insert({
+        first_name: firstName.trim(),
+        last_name: lastName.trim(),
+        password_hash: passwordHash,
+        role_id: parseInt(roleId),
+      })
+      .select("id, first_name, last_name, role_id")
+      .single();
 
-  if (error) return res.status(500).json({ error: error.message });
+    if (error) throw error;
 
-  await log(req.user.id, "ADMIN_CREATE_USER", "users", data.id, {
-    targetName: `${data.first_name} ${data.last_name}`,
-    roleId,
-  });
-  res.status(201).json(data);
+    await log(req.user.id, "ADMIN_CREATE_USER", "users", data.id, {
+      targetName: `${data.first_name} ${data.last_name}`,
+      roleId,
+    });
+    res.status(201).json(data);
+  } catch (error) {
+    console.error("[POST /users] Error:", error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
-/* PATCH /api/admin/users/:id/role - Modifier le rôle UNIQUEMENT */
+/* PATCH /api/admin/users/:id/role */
 router.patch("/users/:id/role", async (req, res) => {
   const { id } = req.params;
   const { roleId } = req.body;
@@ -90,89 +98,125 @@ router.patch("/users/:id/role", async (req, res) => {
     });
   }
 
-  const { data: before } = await supabase
-    .from("users")
-    .select("role_id, first_name, last_name")
-    .eq("id", id)
-    .single();
+  try {
+    const { data: before } = await supabase
+      .from("users")
+      .select("role_id, first_name, last_name")
+      .eq("id", id)
+      .single();
 
-  const { data, error } = await supabase
-    .from("users")
-    .update({ role_id: parseInt(roleId) })
-    .eq("id", id)
-    .select("id, first_name, last_name, role_id")
-    .single();
+    const { data, error } = await supabase
+      .from("users")
+      .update({ role_id: parseInt(roleId) })
+      .eq("id", id)
+      .select("id, first_name, last_name, role_id")
+      .single();
 
-  if (error) {
+    if (error) throw error;
+
+    await log(req.user.id, "ADMIN_CHANGE_ROLE", "users", id, {
+      from: before?.role_id,
+      to: roleId,
+      targetName: `${data.first_name} ${data.last_name}`,
+    });
+    res.json(data);
+  } catch (error) {
     console.error("[PATCH /role] Error:", error);
-    return res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error.message });
   }
-
-  await log(req.user.id, "ADMIN_CHANGE_ROLE", "users", id, {
-    from: before?.role_id,
-    to: roleId,
-    targetName: `${data.first_name} ${data.last_name}`,
-  });
-  res.json(data);
 });
 
-/* PUT /api/admin/users/:id - Modifier infos générales (sans rôle) */
+/* PUT /api/admin/users/:id */
 router.put("/users/:id", async (req, res) => {
   const { id } = req.params;
   const { firstName, lastName, isActive, password } = req.body;
-  const updates = {};
 
-  console.log("[PUT /users/:id] id:", id, req.body);
-
-  if (firstName !== undefined) updates.first_name = firstName.trim();
-  if (lastName !== undefined) updates.last_name = lastName.trim();
-  if (isActive !== undefined) updates.is_active = isActive;
-  if (password && password.length >= 6) {
-    updates.password_hash = await bcrypt.hash(password, 12);
-  }
-
-  // Ne pas modifier le rôle ici
-  const { data, error } = await supabase
-    .from("users")
-    .update(updates)
-    .eq("id", id)
-    .select("id, first_name, last_name, role_id, is_active")
-    .single();
-
-  if (error) {
-    console.error("[PUT /users/:id] Error:", error);
-    return res.status(500).json({ error: error.message });
-  }
-
-  await log(req.user.id, "ADMIN_UPDATE_USER", "users", id, {
-    fields: Object.keys(updates).filter((k) => k !== "password_hash"),
+  console.log("[PUT /users/:id] id:", id, "body:", {
+    firstName,
+    lastName,
+    isActive,
+    passwordProvided: !!password,
   });
-  res.json(data);
+
+  try {
+    const updates = {};
+    if (firstName !== undefined) updates.first_name = firstName.trim();
+    if (lastName !== undefined) updates.last_name = lastName.trim();
+    if (isActive !== undefined) updates.is_active = isActive;
+    if (password && password.length >= 6) {
+      updates.password_hash = await bcrypt.hash(password, 12);
+    }
+
+    const { data, error } = await supabase
+      .from("users")
+      .update(updates)
+      .eq("id", id)
+      .select("id, first_name, last_name, role_id, is_active")
+      .single();
+
+    if (error) throw error;
+
+    await log(req.user.id, "ADMIN_UPDATE_USER", "users", id, {
+      fields: Object.keys(updates).filter((k) => k !== "password_hash"),
+    });
+    res.json(data);
+  } catch (error) {
+    console.error("[PUT /users/:id] Error:", error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
-/* DELETE /api/admin/users/:id - Suppression complète */
+/* DELETE /api/admin/users/:id - Version ultra robuste */
 router.delete("/users/:id", async (req, res) => {
   const { id } = req.params;
 
-  console.log("[DELETE /users/:id] id:", id);
+  console.log("[DELETE /users/:id] START for user:", id);
+  console.log("[DELETE] Current admin:", req.user.id);
 
   if (id === req.user.id) {
+    console.log("[DELETE] Cannot delete self");
     return res
       .status(400)
       .json({ error: "Impossible de supprimer votre propre compte" });
   }
 
   try {
-    // 1. Récupérer toutes les soumissions de l'utilisateur
-    const { data: submissions } = await supabase
+    // 1. Vérifier que l'utilisateur existe
+    const { data: userToDelete, error: userError } = await supabase
+      .from("users")
+      .select("id, first_name, last_name, role_id")
+      .eq("id", id)
+      .single();
+
+    if (userError || !userToDelete) {
+      console.log("[DELETE] User not found:", id);
+      return res.status(404).json({ error: "Utilisateur introuvable" });
+    }
+
+    console.log(
+      "[DELETE] Found user:",
+      userToDelete.first_name,
+      userToDelete.last_name,
+    );
+
+    // 2. Récupérer les soumissions
+    const { data: submissions, error: subError } = await supabase
       .from("submissions")
       .select("id, photo_id")
       .eq("user_id", id);
 
+    if (subError) {
+      console.log("[DELETE] Error getting submissions:", subError);
+      throw subError;
+    }
+
     const submissionIds = (submissions || []).map((s) => s.id);
     const photoIds = (submissions || []).map((s) => s.photo_id);
+    console.log(
+      `[DELETE] Found ${submissionIds.length} submissions, ${photoIds.length} photos`,
+    );
 
-    // 2. Mettre à jour les sessions de délibération
+    // 3. Mettre à jour les sessions de délibération
     if (submissionIds.length > 0) {
       const { data: sessionsToUpdate } = await supabase
         .from("deliberation_sessions")
@@ -180,12 +224,13 @@ router.delete("/users/:id", async (req, res) => {
         .in("current_photo_id", submissionIds);
 
       if (sessionsToUpdate && sessionsToUpdate.length > 0) {
+        console.log(`[DELETE] Updating ${sessionsToUpdate.length} sessions`);
         for (const session of sessionsToUpdate) {
           const { data: otherSubmission } = await supabase
             .from("submissions")
             .select("id")
             .eq("category_id", session.category_id)
-            .not("id", "in", `(${submissionIds.join(",")})`)
+            .not("id", "in", `(${submissionIds.join(",") || "''"})`)
             .limit(1)
             .single();
 
@@ -208,66 +253,165 @@ router.delete("/users/:id", async (req, res) => {
       }
     }
 
-    // 3. Supprimer les dépendances
+    // 4. Supprimer les dépendances - une par une avec try/catch
     if (submissionIds.length > 0) {
-      await supabase.from("scores").delete().in("submission_id", submissionIds);
-      await supabase
+      console.log(
+        `[DELETE] Deleting scores for ${submissionIds.length} submissions`,
+      );
+      const { error: e1 } = await supabase
+        .from("scores")
+        .delete()
+        .in("submission_id", submissionIds);
+      if (e1)
+        console.log("[DELETE] Scores delete error (non-fatal):", e1.message);
+
+      console.log(`[DELETE] Deleting jury_validations`);
+      const { error: e2 } = await supabase
         .from("jury_validations")
         .delete()
         .in("submission_id", submissionIds);
-      await supabase
+      if (e2)
+        console.log(
+          "[DELETE] Jury validations delete error (non-fatal):",
+          e2.message,
+        );
+
+      const { error: e3 } = await supabase
         .from("favorites")
         .delete()
         .in("submission_id", submissionIds);
-      await supabase.from("notes").delete().in("submission_id", submissionIds);
-      await supabase
+      if (e3)
+        console.log("[DELETE] Favorites delete error (non-fatal):", e3.message);
+
+      const { error: e4 } = await supabase
+        .from("notes")
+        .delete()
+        .in("submission_id", submissionIds);
+      if (e4)
+        console.log("[DELETE] Notes delete error (non-fatal):", e4.message);
+
+      const { error: e5 } = await supabase
         .from("results")
         .delete()
         .in("submission_id", submissionIds);
+      if (e5)
+        console.log("[DELETE] Results delete error (non-fatal):", e5.message);
     }
 
-    // 4. Supprimer les scores où l'utilisateur est juré
-    await supabase.from("scores").delete().eq("juror_id", id);
-    await supabase.from("jury_validations").delete().eq("juror_id", id);
-    await supabase.from("favorites").delete().eq("juror_id", id);
-    await supabase.from("notes").delete().eq("juror_id", id);
+    // 5. Supprimer les données où l'utilisateur est juré
+    console.log(`[DELETE] Deleting juror-related data`);
+    const { error: e6 } = await supabase
+      .from("scores")
+      .delete()
+      .eq("juror_id", id);
+    if (e6)
+      console.log(
+        "[DELETE] Juror scores delete error (non-fatal):",
+        e6.message,
+      );
 
-    // 5. Supprimer les soumissions
-    await supabase.from("submissions").delete().eq("user_id", id);
+    const { error: e7 } = await supabase
+      .from("jury_validations")
+      .delete()
+      .eq("juror_id", id);
+    if (e7)
+      console.log(
+        "[DELETE] Juror validations delete error (non-fatal):",
+        e7.message,
+      );
 
-    // 6. Supprimer les photos du storage
+    const { error: e8 } = await supabase
+      .from("favorites")
+      .delete()
+      .eq("juror_id", id);
+    if (e8)
+      console.log(
+        "[DELETE] Juror favorites delete error (non-fatal):",
+        e8.message,
+      );
+
+    const { error: e9 } = await supabase
+      .from("notes")
+      .delete()
+      .eq("juror_id", id);
+    if (e9)
+      console.log("[DELETE] Juror notes delete error (non-fatal):", e9.message);
+
+    // 6. Supprimer les soumissions
+    if (submissionIds.length > 0) {
+      console.log(`[DELETE] Deleting submissions`);
+      const { error: e10 } = await supabase
+        .from("submissions")
+        .delete()
+        .eq("user_id", id);
+      if (e10)
+        console.log(
+          "[DELETE] Submissions delete error (non-fatal):",
+          e10.message,
+        );
+    }
+
+    // 7. Supprimer les photos du storage
     const { data: photos } = await supabase
       .from("photos")
       .select("storage_path")
       .eq("user_id", id);
 
     if (photos && photos.length > 0) {
+      console.log(`[DELETE] Deleting ${photos.length} photos from storage`);
       const storagePaths = photos.map((p) => p.storage_path).filter((p) => p);
       if (storagePaths.length > 0) {
-        await supabase.storage.from("photos").remove(storagePaths);
+        try {
+          await supabase.storage.from("photos").remove(storagePaths);
+        } catch (storageErr) {
+          console.log(
+            "[DELETE] Storage delete error (non-fatal):",
+            storageErr.message,
+          );
+        }
       }
     }
 
-    // 7. Supprimer les photos
-    await supabase.from("photos").delete().eq("user_id", id);
+    // 8. Supprimer les photos de la BDD
+    console.log(`[DELETE] Deleting photos from DB`);
+    const { error: e11 } = await supabase
+      .from("photos")
+      .delete()
+      .eq("user_id", id);
+    if (e11)
+      console.log("[DELETE] Photos delete error (non-fatal):", e11.message);
 
-    // 8. Supprimer l'audit log
-    await supabase.from("audit_log").delete().eq("user_id", id);
+    // 9. Supprimer l'audit log
+    console.log(`[DELETE] Deleting audit logs`);
+    const { error: e12 } = await supabase
+      .from("audit_log")
+      .delete()
+      .eq("user_id", id);
+    if (e12)
+      console.log("[DELETE] Audit log delete error (non-fatal):", e12.message);
 
-    // 9. Supprimer l'utilisateur
-    const { error } = await supabase.from("users").delete().eq("id", id);
+    // 10. Supprimer l'utilisateur
+    console.log(`[DELETE] Finally deleting user`);
+    const { error: finalError } = await supabase
+      .from("users")
+      .delete()
+      .eq("id", id);
 
-    if (error) throw error;
+    if (finalError) {
+      console.log("[DELETE] Final delete error:", finalError);
+      throw finalError;
+    }
 
     await log(req.user.id, "ADMIN_DELETE_USER", "users", id, {
       submissionsDeleted: submissionIds.length,
       photosDeleted: photos?.length || 0,
     });
 
+    console.log("[DELETE] Success!");
     res.json({ success: true, message: "Utilisateur supprimé" });
   } catch (error) {
-    console.error("[DELETE] Erreur:", error);
-    res.status(500).json({ error: error.message });
+    console.error("[DELETE] CRITICAL ERROR:", error);
+    res.status(500).json({ error: error.message, stack: error.stack });
   }
 });
 

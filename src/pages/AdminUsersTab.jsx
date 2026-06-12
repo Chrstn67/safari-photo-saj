@@ -1,8 +1,4 @@
 // frontend/src/pages/AdminUsersTab.jsx
-// ═══════════════════════════════════════════════════════════════
-// GESTION DES UTILISATEURS — onglet admin
-// ═══════════════════════════════════════════════════════════════
-
 import { useState, useEffect, useCallback } from "react";
 import { api } from "../../server/utils/api.js";
 
@@ -22,6 +18,7 @@ export default function AdminUsersTab({ showFlash }) {
     roleId: "1",
   });
   const [loading, setLoading] = useState(false);
+  const [deletingUserId, setDeletingUserId] = useState(null);
   const [filter, setFilter] = useState("all");
 
   const load = useCallback(async () => {
@@ -39,7 +36,6 @@ export default function AdminUsersTab({ showFlash }) {
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
-  /* ── Changer le rôle d'un utilisateur ── */
   async function changeRole(user, newRoleId) {
     const roleLabel = ROLES[newRoleId]?.label || newRoleId;
     const msg =
@@ -51,7 +47,6 @@ export default function AdminUsersTab({ showFlash }) {
 
     if (!confirm(msg)) return;
     try {
-      // Utiliser le bon endpoint PATCH /role
       await api.patch(`/admin/users/${user.id}/role`, { roleId: newRoleId });
       showFlash(`✅ ${user.first_name} est maintenant ${roleLabel}`);
       load();
@@ -71,11 +66,7 @@ export default function AdminUsersTab({ showFlash }) {
         await api.post("/admin/users", form);
         showFlash(`✅ Compte créé — rôle : ${ROLES[form.roleId]?.label}`);
       } else {
-        // Modification (sans toucher au rôle — utiliser les boutons dédiés)
-        const payload = {
-          firstName: form.firstName,
-          lastName: form.lastName,
-        };
+        const payload = { firstName: form.firstName, lastName: form.lastName };
         if (form.password && form.password.length >= 6) {
           payload.password = form.password;
         }
@@ -106,25 +97,21 @@ export default function AdminUsersTab({ showFlash }) {
   }
 
   async function handleDelete(user) {
-    const msg =
-      `⚠️ SUPPRESSION DÉFINITIVE\n\n` +
-      `Utilisateur : ${user.first_name} ${user.last_name}\n` +
-      `Rôle : ${ROLES[user.role_id]?.label}\n\n` +
-      `⚠️ Cette action supprimera :\n` +
-      `• Toutes ses photos\n` +
-      `• Toutes ses soumissions\n` +
-      `• Toutes ses notes et validations\n` +
-      `• Ses favoris\n\n` +
-      `Action irréversible. Confirmer ?`;
-
+    const msg = `⚠️ SUPPRESSION DÉFINITIVE\n\nUtilisateur : ${user.first_name} ${user.last_name}\nRôle : ${ROLES[user.role_id]?.label}\n\nAction irréversible. Confirmer ?`;
     if (!confirm(msg)) return;
 
+    setDeletingUserId(user.id);
     try {
       await api.delete(`/admin/users/${user.id}`);
       showFlash(`🗑️ ${user.first_name} ${user.last_name} supprimé`);
       load();
     } catch (e) {
-      showFlash("❌ " + e.message);
+      console.error("Delete error:", e);
+      showFlash(
+        `❌ Erreur: ${e.message || "Vérifiez la console pour plus de détails"}`,
+      );
+    } finally {
+      setDeletingUserId(null);
     }
   }
 
@@ -139,6 +126,7 @@ export default function AdminUsersTab({ showFlash }) {
 
   return (
     <div style={{ paddingBottom: "2rem" }}>
+      {/* Header */}
       <div style={S.headerRow}>
         <div>
           <div style={S.sectionTitle}>Utilisateurs inscrits</div>
@@ -158,6 +146,7 @@ export default function AdminUsersTab({ showFlash }) {
         </button>
       </div>
 
+      {/* Filters */}
       <div style={S.filterRow}>
         {[
           ["all", "Tous"],
@@ -175,6 +164,7 @@ export default function AdminUsersTab({ showFlash }) {
         ))}
       </div>
 
+      {/* User list */}
       <div style={S.panel}>
         {filtered.length === 0 && (
           <div style={S.empty}>Aucun utilisateur dans cette catégorie.</div>
@@ -210,36 +200,22 @@ export default function AdminUsersTab({ showFlash }) {
 
             <div style={S.actionGroup}>
               {u.role_id === 1 && (
-                <button
-                  style={S.btnAccent}
-                  title="Accorder le rôle Juré"
-                  onClick={() => changeRole(u, 2)}
-                >
+                <button style={S.btnAccent} onClick={() => changeRole(u, 2)}>
                   🎤 Juré
                 </button>
               )}
               {u.role_id === 2 && (
-                <button
-                  style={S.btnNeutral}
-                  title="Rétrograder en Participant"
-                  onClick={() => changeRole(u, 1)}
-                >
-                  ↩ Participant
-                </button>
+                <>
+                  <button style={S.btnNeutral} onClick={() => changeRole(u, 1)}>
+                    ↩ Participant
+                  </button>
+                  <button style={S.btnAccent} onClick={() => changeRole(u, 3)}>
+                    ⭐ Admin
+                  </button>
+                </>
               )}
-              {u.role_id === 2 && (
-                <button
-                  style={S.btnNeutral}
-                  title="Promouvoir Admin"
-                  onClick={() => changeRole(u, 3)}
-                >
-                  ⭐ Admin
-                </button>
-              )}
-
               <button
                 style={S.btnIcon}
-                title="Modifier"
                 onClick={() => {
                   setForm({
                     firstName: u.first_name,
@@ -252,36 +228,22 @@ export default function AdminUsersTab({ showFlash }) {
               >
                 ✏️
               </button>
-
-              <button
-                style={S.btnIcon}
-                title={u.is_active ? "Désactiver" : "Activer"}
-                onClick={() => toggleActive(u)}
-              >
+              <button style={S.btnIcon} onClick={() => toggleActive(u)}>
                 {u.is_active ? "🔴" : "🟢"}
               </button>
-
               <button
                 style={{ ...S.btnIcon, color: "#B84040" }}
-                title="Supprimer"
                 onClick={() => handleDelete(u)}
+                disabled={deletingUserId === u.id}
               >
-                🗑️
+                {deletingUserId === u.id ? "⏳" : "🗑️"}
               </button>
             </div>
           </div>
         ))}
       </div>
 
-      <div style={S.anonymatBanner}>
-        <span style={{ fontSize: "1rem" }}>🔒</span>
-        <span>
-          <strong>Anonymat garanti :</strong> vous voyez ici qui est inscrit et
-          son rôle, mais <em>jamais</em> à qui appartient une photo pendant les
-          délibérations.
-        </span>
-      </div>
-
+      {/* Modal */}
       {modal && (
         <div style={S.backdrop} onClick={() => setModal(null)}>
           <div style={S.modalBox} onClick={(e) => e.stopPropagation()}>
@@ -314,7 +276,6 @@ export default function AdminUsersTab({ showFlash }) {
                   />
                 </div>
               </div>
-
               {modal === "create" && (
                 <div style={S.fieldGroup}>
                   <label style={S.label}>Rôle initial</label>
@@ -329,7 +290,6 @@ export default function AdminUsersTab({ showFlash }) {
                   </select>
                 </div>
               )}
-
               <div style={S.fieldGroup}>
                 <label style={S.label}>
                   Mot de passe{" "}
@@ -490,19 +450,6 @@ const S = {
     textAlign: "center",
     color: "#A89880",
     fontSize: ".88rem",
-  },
-  anonymatBanner: {
-    display: "flex",
-    gap: ".7rem",
-    alignItems: "flex-start",
-    background: "#F5E6D5",
-    border: "1px solid #E8A26A",
-    borderRadius: 10,
-    padding: ".75rem 1rem",
-    fontSize: ".78rem",
-    color: "#6B5E50",
-    lineHeight: 1.55,
-    marginTop: "1rem",
   },
   backdrop: {
     position: "fixed",
