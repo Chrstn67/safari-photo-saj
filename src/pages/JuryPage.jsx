@@ -510,32 +510,18 @@ export default function JuryPage() {
 }
 
 // ════════════════════════════════════════════════════════════════
-// COMPOSANT PALMARÈS - AVEC SYSTÈME DE VOTE COMPLET
+// COMPOSANT PALMARÈS
 // ════════════════════════════════════════════════════════════════
-function PalmaresView({ showFlash, user }) {
+function PalmaresView({ showFlash }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [showVoteModal, setShowVoteModal] = useState(false);
-  const [showResultsModal, setShowResultsModal] = useState(false);
-  const [selectedPhoto, setSelectedPhoto] = useState(null);
-  const [voting, setVoting] = useState(false);
-  const [eyePrizeData, setEyePrizeData] = useState(null);
 
   const loadData = async () => {
     setLoading(true);
     try {
       const result = await api.get("/results/palmares");
-      console.log("[PalmaresView] Données reçues:", result);
       setData(result);
-      setEyePrizeData({
-        voteCounts: result.eyePrizeVotes || [],
-        myVote: result.myEyePrizeVote,
-        finalResult: result.eyePrize,
-        hasTie: result.eyePrizeHasTie || false,
-        tiedPhotos: result.eyePrizeTiedPhotos || [],
-      });
     } catch (e) {
-      console.error("[PalmaresView] Erreur:", e);
       showFlash?.(e.message);
     } finally {
       setLoading(false);
@@ -545,25 +531,6 @@ function PalmaresView({ showFlash, user }) {
   useEffect(() => {
     loadData();
   }, []);
-
-  const handleVote = async (submissionId) => {
-    setVoting(true);
-    try {
-      // Utiliser la bonne route eye-prize/vote
-      await api.post("/results/eye-prize/vote", { submissionId });
-      showFlash(
-        eyePrizeData?.myVote ? "✅ Vote modifié !" : "✅ Vote enregistré !",
-      );
-      await loadData();
-      setShowVoteModal(false);
-      setSelectedPhoto(null);
-    } catch (e) {
-      console.error("[handleVote] Erreur:", e);
-      showFlash("❌ " + e.message);
-    } finally {
-      setVoting(false);
-    }
-  };
 
   if (loading) {
     return (
@@ -583,10 +550,7 @@ function PalmaresView({ showFlash, user }) {
     );
   }
 
-  const hasVoted = eyePrizeData?.myVote !== null;
-  const voteCounts = eyePrizeData?.voteCounts || [];
-  const finalResult = eyePrizeData?.finalResult;
-  const hasTie = eyePrizeData?.hasTie;
+  const finalResult = data.eyePrize;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
@@ -776,14 +740,13 @@ function PalmaresView({ showFlash, user }) {
         )}
       </div>
 
-      {/* 5. PRIX DE L'ŒIL */}
+      {/* 5. Prix de l'œil */}
       <div className="section">
         <div className="section-header">
           <div className="section-title">
             👁️ Prix de l'œil — Photo la plus originale
           </div>
         </div>
-
         {finalResult ? (
           <div className="card" style={{ textAlign: "center" }}>
             {finalResult.submissions?.photoUrl && (
@@ -817,356 +780,14 @@ function PalmaresView({ showFlash, user }) {
               {finalResult.submissions?.categories?.name &&
                 ` · ${finalResult.submissions.categories.name}`}
             </div>
-            <div className="badge badge-amber" style={{ marginTop: ".5rem" }}>
-              {finalResult.total_votes} vote(s)
-            </div>
           </div>
         ) : (
-          <>
-            {hasTie && (
-              <div
-                className="info-banner banner-red"
-                style={{
-                  marginBottom: "1rem",
-                  background: "#F7E0DC",
-                  borderColor: "#B84040",
-                }}
-              >
-                <span className="banner-icon">⚠️</span>
-                <div>
-                  <strong>Égalité détectée !</strong>
-                  <p style={{ margin: "0.25rem 0 0" }}>
-                    L'administrateur va départager les ex-aequo.
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* Résumé des votes */}
-            {voteCounts.length > 0 && (
-              <div className="panel" style={{ marginBottom: "1rem" }}>
-                <div
-                  className="section-header"
-                  style={{
-                    padding: "0.75rem 1rem",
-                    marginBottom: 0,
-                    borderBottom: "1px solid var(--sand-border)",
-                  }}
-                >
-                  <div className="section-title">📊 Votes actuels</div>
-                  <button
-                    className="btn btn-sm"
-                    onClick={() => setShowResultsModal(true)}
-                  >
-                    Voir tous les votes
-                  </button>
-                </div>
-                <div
-                  className="photo-grid"
-                  style={{
-                    padding: "0.75rem",
-                    gridTemplateColumns:
-                      "repeat(auto-fill, minmax(180px, 1fr))",
-                  }}
-                >
-                  {voteCounts.slice(0, 4).map((vote, idx) => (
-                    <div
-                      key={idx}
-                      className="card"
-                      style={{ textAlign: "center", padding: ".75rem" }}
-                    >
-                      {vote.photoUrl ? (
-                        <img
-                          src={vote.photoUrl}
-                          alt=""
-                          style={{
-                            width: "100%",
-                            height: "120px",
-                            objectFit: "cover",
-                            borderRadius: "6px",
-                          }}
-                        />
-                      ) : (
-                        <div
-                          style={{
-                            width: "100%",
-                            height: "120px",
-                            background: "var(--sand-dark)",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            borderRadius: "6px",
-                          }}
-                        >
-                          📷
-                        </div>
-                      )}
-                      <div style={{ fontWeight: 600, marginTop: ".5rem" }}>
-                        {vote.anonymousId}
-                      </div>
-                      <span
-                        className="badge badge-amber"
-                        style={{ marginTop: ".25rem" }}
-                      >
-                        {vote.votes} voix
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Message et bouton pour voter */}
-            <div
-              className="info-banner banner-amber"
-              style={{ marginBottom: "1rem" }}
-            >
-              <span className="banner-icon">🗳️</span>
-              {hasVoted ? (
-                <span>
-                  Vous avez voté pour{" "}
-                  <strong>{eyePrizeData?.myVote?.anonymousId}</strong>. Vous
-                  pouvez modifier votre vote.
-                </span>
-              ) : (
-                <span>
-                  Choisissez votre photo préférée parmi TOUTES les photos
-                  soumises !
-                </span>
-              )}
-            </div>
-
-            <button
-              className="btn btn-primary btn-full"
-              onClick={() => setShowVoteModal(true)}
-              disabled={hasTie}
-              style={{ opacity: hasTie ? 0.5 : 1 }}
-            >
-              {hasVoted
-                ? "🔄 Modifier mon vote"
-                : hasTie
-                  ? "⏳ Égalité en cours"
-                  : "🗳️ Voter pour ma photo préférée"}
-            </button>
-          </>
+          <div className="info-banner banner-amber">
+            <span className="banner-icon">⏳</span>
+            Le Prix de l'œil sera annoncé prochainement.
+          </div>
         )}
       </div>
-
-      {/* MODAL DE VOTE - LISTE COMPLÈTE DES PHOTOS */}
-      {showVoteModal && (
-        <div className="modal-backdrop" onClick={() => setShowVoteModal(false)}>
-          <div
-            className="modal"
-            style={{ maxWidth: "800px", maxHeight: "80dvh" }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="modal-header">
-              <h3>👁️ Sélectionnez votre photo préférée</h3>
-              <button
-                className="btn btn-sm"
-                onClick={() => setShowVoteModal(false)}
-              >
-                ✕
-              </button>
-            </div>
-            <div className="modal-body" style={{ overflowY: "auto" }}>
-              <div
-                className="photo-grid"
-                style={{
-                  gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
-                }}
-              >
-                {(data.allSubmissions || []).map((sub) => (
-                  <div
-                    key={sub.id}
-                    className={`photo-item ${eyePrizeData?.myVote?.submission_id === sub.id ? "selected" : ""}`}
-                    onClick={() => setSelectedPhoto(sub)}
-                    style={{
-                      cursor: "pointer",
-                      border:
-                        eyePrizeData?.myVote?.submission_id === sub.id
-                          ? "3px solid var(--amber)"
-                          : "1.5px solid var(--sand-border)",
-                    }}
-                  >
-                    {sub.photoUrl ? (
-                      <img
-                        src={sub.photoUrl}
-                        alt=""
-                        style={{
-                          width: "100%",
-                          height: "100%",
-                          objectFit: "cover",
-                        }}
-                      />
-                    ) : (
-                      <div
-                        style={{
-                          width: "100%",
-                          height: "100%",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          background: "var(--sand-dark)",
-                        }}
-                      >
-                        📷
-                      </div>
-                    )}
-                    <div
-                      className="photo-overlay"
-                      style={{
-                        opacity: 1,
-                        background:
-                          "linear-gradient(to top, rgba(0,0,0,.7) 0%, transparent 70%)",
-                      }}
-                    >
-                      <div
-                        style={{
-                          color: "#fff",
-                          fontSize: ".7rem",
-                          textAlign: "center",
-                          width: "100%",
-                        }}
-                      >
-                        {sub.anonymous_id}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button className="btn" onClick={() => setShowVoteModal(false)}>
-                Annuler
-              </button>
-              {selectedPhoto && (
-                <button
-                  className="btn btn-primary"
-                  onClick={() => handleVote(selectedPhoto.id)}
-                  disabled={voting}
-                >
-                  {voting ? "⏳" : "✅ Confirmer mon vote"}
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL DES RÉSULTATS DES VOTES */}
-      {showResultsModal && (
-        <div
-          className="modal-backdrop"
-          onClick={() => setShowResultsModal(false)}
-        >
-          <div
-            className="modal"
-            style={{ maxWidth: "600px", maxHeight: "80dvh" }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="modal-header">
-              <h3>📊 Résultats des votes — Prix de l'œil</h3>
-              <button
-                className="btn btn-sm"
-                onClick={() => setShowResultsModal(false)}
-              >
-                ✕
-              </button>
-            </div>
-            <div className="modal-body" style={{ overflowY: "auto" }}>
-              {voteCounts.length === 0 ? (
-                <div
-                  style={{
-                    textAlign: "center",
-                    padding: "2rem",
-                    color: "var(--ink-muted)",
-                  }}
-                >
-                  Aucun vote enregistré pour le moment.
-                </div>
-              ) : (
-                <div
-                  className="photo-grid"
-                  style={{ gridTemplateColumns: "1fr" }}
-                >
-                  {voteCounts
-                    .sort((a, b) => b.votes - a.votes)
-                    .map((vote, idx) => (
-                      <div
-                        key={idx}
-                        className="card"
-                        style={{
-                          padding: "1rem",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "1rem",
-                          flexWrap: "wrap",
-                          marginBottom: ".5rem",
-                        }}
-                      >
-                        {vote.photoUrl && (
-                          <img
-                            src={vote.photoUrl}
-                            alt=""
-                            style={{
-                              width: "60px",
-                              height: "60px",
-                              objectFit: "cover",
-                              borderRadius: "8px",
-                            }}
-                          />
-                        )}
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontWeight: 700 }}>
-                            {vote.anonymousId}
-                          </div>
-                          <div
-                            style={{
-                              fontSize: ".7rem",
-                              color: "var(--ink-muted)",
-                            }}
-                          >
-                            {vote.categoryName}
-                          </div>
-                        </div>
-                        <div>
-                          <span
-                            className="badge badge-amber"
-                            style={{ fontSize: "1rem", padding: ".3rem 1rem" }}
-                          >
-                            {vote.votes} voix
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                </div>
-              )}
-              {hasTie && (
-                <div
-                  style={{
-                    marginTop: "1rem",
-                    padding: "0.75rem",
-                    background: "var(--amber-light)",
-                    borderRadius: "8px",
-                    textAlign: "center",
-                  }}
-                >
-                  ⚠️ Égalité détectée — L'administrateur va départager.
-                </div>
-              )}
-            </div>
-            <div className="modal-footer">
-              <button
-                className="btn"
-                onClick={() => setShowResultsModal(false)}
-              >
-                Fermer
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
