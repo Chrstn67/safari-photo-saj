@@ -1,20 +1,4 @@
 // frontend/src/pages/LoginPage.jsx
-// ═══════════════════════════════════════════════════════════════
-// PAGE UNIQUE pour CONNEXION et INSCRIPTION
-//   - Onglet "Se connecter"  → login prénom + nom + mdp
-//   - Onglet "S'inscrire"    → register (crée un compte participant)
-//
-// Après login, la redirection dépend du rôle retourné par l'API :
-//   participant → /participant
-//   juror       → /jury
-//   admin       → /admin
-//   DIAPO SAJ   → /diapo (compte spécial pour l'écran de projection)
-//
-// IMPORTANT : L'admin Christian HUMBERT se connecte ici
-// exactement comme un participant — la page ne distingue pas.
-// C'est le rôle en BDD qui détermine la redirection.
-// ═══════════════════════════════════════════════════════════════
-
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../server/hooks/useAuth.jsx";
@@ -29,19 +13,17 @@ const ROLE_REDIRECT = {
 export default function AuthPage() {
   const { login, register } = useAuth();
   const navigate = useNavigate();
-  const [tab, setTab] = useState("login"); // 'login' | 'register'
+  const [tab, setTab] = useState("login");
 
   return (
     <div style={styles.page}>
       <div style={styles.card}>
-        {/* Logo */}
         <div style={styles.logo}>
           <div style={styles.logoIcon}>📸</div>
           <h1 style={styles.logoTitle}>Safari Photo</h1>
           <p style={styles.logoSub}>Concours de photographie</p>
         </div>
 
-        {/* Onglets */}
         <div style={styles.tabs}>
           <button
             style={{
@@ -77,7 +59,6 @@ export default function AuthPage() {
   );
 }
 
-/* ── Formulaire de connexion ── */
 function LoginForm({ login, navigate }) {
   const [form, setForm] = useState({
     firstName: "",
@@ -98,13 +79,9 @@ function LoginForm({ login, navigate }) {
         form.lastName.trim(),
         form.password,
       );
-
-      // Redirection spéciale pour le compte DIAPO
-      if (user.firstName === "DIAPO" && user.lastName === "SAJ") {
-        navigate("/diapo", { replace: true });
-      } else {
-        navigate(ROLE_REDIRECT[user.role] || "/participant", { replace: true });
-      }
+      // Redirection basée sur le rôle
+      const redirectPath = ROLE_REDIRECT[user.role] || "/participant";
+      navigate(redirectPath, { replace: true });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -165,7 +142,6 @@ function LoginForm({ login, navigate }) {
   );
 }
 
-/* ── Formulaire d'inscription ── */
 function RegisterForm({ register, navigate, setTab }) {
   const [form, setForm] = useState({
     firstName: "",
@@ -186,7 +162,6 @@ function RegisterForm({ register, navigate, setTab }) {
     }
     setLoading(true);
     try {
-      // Inscription → toujours participant, redirection fixe
       await register(
         form.firstName.trim(),
         form.lastName.trim(),
@@ -300,7 +275,6 @@ function RegisterForm({ register, navigate, setTab }) {
   );
 }
 
-/* ── Styles inline (pas de dépendance CSS externe) ── */
 const styles = {
   page: {
     minHeight: "100dvh",

@@ -28,7 +28,10 @@ function ProtectedRoute({ children, roles }) {
   if (roles && !roles.includes(user.role)) {
     if (user.role === "admin") return <Navigate to="/admin" replace />;
     if (user.role === "juror") return <Navigate to="/jury" replace />;
-    return <Navigate to="/participant" replace />;
+    if (user.role === "participant")
+      return <Navigate to="/participant" replace />;
+    if (user.role === "diapo") return <Navigate to="/diapo" replace />;
+    return <Navigate to="/login" replace />;
   }
   return children;
 }
@@ -37,12 +40,16 @@ function PublicRoute({ children }) {
   const { user, loading } = useAuth();
   if (loading) return null;
   if (user) {
-    // Redirection pour le compte DIAPO
+    // Redirection uniquement pour le compte DIAPO (prénom et nom spécifiques)
     if (user.firstName === "DIAPO" && user.lastName === "SAJ") {
       return <Navigate to="/diapo" replace />;
     }
+    // Redirection normale pour les autres
     if (user.role === "admin") return <Navigate to="/admin" replace />;
     if (user.role === "juror") return <Navigate to="/jury" replace />;
+    if (user.role === "participant")
+      return <Navigate to="/participant" replace />;
+    if (user.role === "diapo") return <Navigate to="/diapo" replace />;
     return <Navigate to="/participant" replace />;
   }
   return children;
