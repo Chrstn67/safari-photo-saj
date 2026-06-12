@@ -2,7 +2,6 @@
 import jwt from "jsonwebtoken";
 import supabase from "../utils/supabase.js";
 
-/* ── Vérifie le JWT dans Authorization: Bearer <token> ── */
 async function requireAuth(req, res, next) {
   const header = req.headers["authorization"];
   if (!header || !header.startsWith("Bearer ")) {

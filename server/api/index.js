@@ -1,3 +1,4 @@
+// backend/index.js
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -10,6 +11,7 @@ import criteriaRoutes from "../routes/criteria.js";
 import deliberationsRoutes from "../routes/deliberations.js";
 import scoresRoutes from "../routes/scores.js";
 import resultsRoutes from "../routes/results.js";
+import slideshowRoutes from "../routes/slideshow.js"; // ← IMPORTANT : ajouté
 import adminRoutes from "../routes/admin.js";
 
 dotenv.config();
@@ -33,6 +35,7 @@ app.use("/api/criteria", criteriaRoutes);
 app.use("/api/deliberations", deliberationsRoutes);
 app.use("/api/scores", scoresRoutes);
 app.use("/api/results", resultsRoutes);
+app.use("/api/slideshow", slideshowRoutes); // ← AJOUTÉ
 app.use("/api/admin", adminRoutes);
 
 app.get("/api/health", (_req, res) => {
@@ -48,7 +51,6 @@ app.get("/api/debug-env", (_req, res) => {
   });
 });
 
-// ✅ Format correct pour Vercel serverless
 export default function handler(req, res) {
   app(req, res);
 }
