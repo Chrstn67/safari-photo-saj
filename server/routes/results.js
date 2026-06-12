@@ -615,44 +615,8 @@ router.post("/eye-prize/vote", requireAuth, requireJuror, async (req, res) => {
       });
     }
 
-    // Mettre à jour les compteurs via upsert (évite les violations de contrainte UNIQUE)
-    const { data: allVotes } = await supabase
-      .from("eye_prize_votes")
-      .select("submission_id");
-    const counts = {};
-    (allVotes || []).forEach((v) => {
-      counts[v.submission_id] = (counts[v.submission_id] || 0) + 1;
-    });
-
-    for (const [subId, count] of Object.entries(counts)) {
-      await supabase.from("eye_prize_result").upsert(
-        {
-          submission_id: subId,
-          total_votes: count,
-          is_finalized: false,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "submission_id", ignoreDuplicates: false },
-      );
-    }
-
-    // Supprimer les entrées pour les soumissions qui n'ont plus de vote
-    const { data: existingResults } = await supabase
-      .from("eye_prize_result")
-      .select("submission_id")
-      .eq("is_finalized", false);
-    const activeSubIds = Object.keys(counts);
-    const toDelete = (existingResults || [])
-      .map((r) => r.submission_id)
-      .filter((id) => !activeSubIds.includes(id));
-    if (toDelete.length > 0) {
-      await supabase
-        .from("eye_prize_result")
-        .delete()
-        .in("submission_id", toDelete)
-        .eq("is_finalized", false);
-    }
-
+    // Les compteurs sont calculés à la volée depuis eye_prize_votes.
+    // eye_prize_result ne sert qu'à stocker le résultat finalisé par l'admin.
     await log(req.user.id, "EYE_PRIZE_VOTE", "eye_prize_votes", submissionId);
     res.json({ success: true, message: "Vote enregistré !" });
   } catch (e) {
@@ -1047,32 +1011,7 @@ router.post(
       }
 
       await supabase.from("eye_prize_votes").delete().eq("juror_id", jurorId);
-
-      const { data: allVotes } = await supabase
-        .from("eye_prize_votes")
-        .select("submission_id");
-      const counts = {};
-      (allVotes || []).forEach((v) => {
-        counts[v.submission_id] = (counts[v.submission_id] || 0) + 1;
-      });
-
-      // Supprimer les résultats non finalisés et reconstruire via upsert
-      await supabase
-        .from("eye_prize_result")
-        .delete()
-        .eq("is_finalized", false);
-
-      for (const [subId, count] of Object.entries(counts)) {
-        await supabase.from("eye_prize_result").upsert(
-          {
-            submission_id: subId,
-            total_votes: count,
-            is_finalized: false,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "submission_id", ignoreDuplicates: false },
-        );
-      }
+      // Les compteurs sont calculés à la volée, rien à mettre à jour dans eye_prize_result.
 
       await log(
         req.user.id,
