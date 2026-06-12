@@ -1,7 +1,7 @@
 // frontend/src/pages/LoginPage.jsx
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "../../server/hooks/useAuth.jsx";
+import { useAuth } from "../hooks/useAuth.jsx";
 
 const ROLE_REDIRECT = {
   admin: "/admin",
@@ -79,7 +79,6 @@ function LoginForm({ login, navigate }) {
         form.lastName.trim(),
         form.password,
       );
-      // Redirection basée sur le rôle
       const redirectPath = ROLE_REDIRECT[user.role] || "/participant";
       navigate(redirectPath, { replace: true });
     } catch (err) {
